@@ -4,6 +4,7 @@ export interface ItemDefinition {
   spriteKey: string;
   maxStack: number;
   type: 'resource' | 'tool' | 'weapon' | 'ammo' | 'placeable' | 'consumable';
+  damage?: number;  // melee damage per hit; defaults to 1 if omitted
 }
 
 export const ITEMS: Record<string, ItemDefinition> = {
@@ -22,9 +23,8 @@ export const ITEMS: Record<string, ItemDefinition> = {
   repair_hammer:  { id: 'repair_hammer',  label: 'Repair Hammer',  spriteKey: 'item-repair-hammer',  maxStack: 1, type: 'tool' },
 
   // ── Weapons ────────────────────────────────────────────────────────────────
-  stone_sword:  { id: 'stone_sword',  label: 'Stone Sword',  spriteKey: 'item-stone-sword',  maxStack: 1, type: 'weapon' },
-  copper_sword: { id: 'copper_sword', label: 'Copper Sword', spriteKey: 'item-copper-sword', maxStack: 1, type: 'weapon' },
-  pistol:       { id: 'pistol',       label: 'Pistol',       spriteKey: 'item-pistol',       maxStack: 1, type: 'weapon' },
+  iron_sword: { id: 'iron_sword', label: 'Iron Sword', spriteKey: 'item-iron-sword', maxStack: 1, type: 'weapon', damage: 7 },
+  pistol:     { id: 'pistol',     label: 'Pistol',     spriteKey: 'item-pistol',     maxStack: 1, type: 'weapon' },
 
   // ── Placeables ─────────────────────────────────────────────────────────────
   auto_miner: { id: 'auto_miner', label: 'Auto Miner', spriteKey: 'autominer-idle', maxStack: 5, type: 'placeable' },

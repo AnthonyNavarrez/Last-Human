@@ -8,9 +8,49 @@ export class BootScene extends Phaser.Scene {
   preload(): void {
     this.load.tilemapTiledJSON('map', 'assets/tiles/map.json');
     this.load.image('TilesetFloor', 'assets/Asset Pack/Backgrounds/Tilesets/TilesetFloor.png');
-    this.load.spritesheet('player-walk',
-      'assets/Asset Pack/Actor/Character/Boy/SeparateAnim/Walk.png',
-      { frameWidth: 16, frameHeight: 16 },
+    this.load.spritesheet('pawn-idle',
+      'assets/AssetPack2/Units/Black Units/Pawn/Pawn_Idle.png',
+      { frameWidth: 192, frameHeight: 192 },
+    );
+    this.load.spritesheet('pawn-run',
+      'assets/AssetPack2/Units/Black Units/Pawn/Pawn_Run.png',
+      { frameWidth: 192, frameHeight: 192 },
+    );
+    this.load.spritesheet('pawn-idle-axe',
+      'assets/AssetPack2/Units/Black Units/Pawn/Pawn_Idle Axe.png',
+      { frameWidth: 192, frameHeight: 192 },
+    );
+    this.load.spritesheet('pawn-run-axe',
+      'assets/AssetPack2/Units/Black Units/Pawn/Pawn_Run Axe.png',
+      { frameWidth: 192, frameHeight: 192 },
+    );
+    this.load.spritesheet('pawn-interact-axe',
+      'assets/AssetPack2/Units/Black Units/Pawn/Pawn_Interact Axe.png',
+      { frameWidth: 192, frameHeight: 192 },
+    );
+    this.load.spritesheet('pawn-idle-pickaxe',
+      'assets/AssetPack2/Units/Black Units/Pawn/Pawn_Idle Pickaxe.png',
+      { frameWidth: 192, frameHeight: 192 },
+    );
+    this.load.spritesheet('pawn-run-pickaxe',
+      'assets/AssetPack2/Units/Black Units/Pawn/Pawn_Run Pickaxe.png',
+      { frameWidth: 192, frameHeight: 192 },
+    );
+    this.load.spritesheet('pawn-interact-pickaxe',
+      'assets/AssetPack2/Units/Black Units/Pawn/Pawn_Interact Pickaxe.png',
+      { frameWidth: 192, frameHeight: 192 },
+    );
+    this.load.spritesheet('pawn-idle-knife',
+      'assets/AssetPack2/Units/Black Units/Pawn/Pawn_Idle Knife.png',
+      { frameWidth: 192, frameHeight: 192 },
+    );
+    this.load.spritesheet('pawn-run-knife',
+      'assets/AssetPack2/Units/Black Units/Pawn/Pawn_Run Knife.png',
+      { frameWidth: 192, frameHeight: 192 },
+    );
+    this.load.spritesheet('pawn-interact-knife',
+      'assets/AssetPack2/Units/Black Units/Pawn/Pawn_Interact Knife.png',
+      { frameWidth: 192, frameHeight: 192 },
     );
     // Resource nodes
     this.load.image('node-tree',       'assets/sprites/tree.png');
@@ -36,9 +76,8 @@ export class BootScene extends Phaser.Scene {
     this.load.image('item-repair-hammer', 'assets/Asset Pack/Items/Tool/Hammer.png');
     this.load.image('item-auto-miner',    'assets/Asset Pack/Items/Tool/Shovel.png');
     // Weapons
-    this.load.image('item-stone-sword',  'assets/Asset Pack/Items/Weapons/Sword/Sprite.png');
-    this.load.image('item-copper-sword', 'assets/Asset Pack/Items/Weapons/Sword2/Sprite.png');
-    this.load.image('item-pistol',       'assets/Asset Pack/Items/Weapons/Bow2/Sprite.png');
+    this.load.image('item-iron-sword', 'assets/AssetPack2/UI Elements/UI Elements/Icons/Icon_05.png');
+    this.load.image('item-pistol',     'assets/Asset Pack/Items/Weapons/Bow2/Sprite.png');
     // Buildings
     this.load.image('building-crafting-bench', 'assets/Asset Pack/Items/Tool/Anvil.png');
     this.load.image('building-house', 'assets/sprites/house-1.png');
@@ -58,6 +97,13 @@ export class BootScene extends Phaser.Scene {
   }
 
   create(): void {
+    // 4×4 white square used for death particle bursts
+    const g = this.add.graphics();
+    g.fillStyle(0xffffff, 1);
+    g.fillRect(0, 0, 4, 4);
+    g.generateTexture('particle', 4, 4);
+    g.destroy();
+
     this.scene.start('menu');
   }
 }

@@ -14,6 +14,8 @@ import { RECIPES } from '../data/recipes';
 import { BaseEnemy } from '../entities/enemies/BaseEnemy';
 import { ENEMIES } from '../data/enemies';
 import { WAVES, WaveDefinition } from '../data/waves';
+import { ITEMS } from '../data/items';
+import { audioManager } from '../systems/AudioManager';
 
 interface KeyMap {
   up: Phaser.Input.Keyboard.Key;
@@ -131,6 +133,7 @@ export class GameScene extends Phaser.Scene {
       if (!recipe) return;
       const ps = this.gameState.players[this.localPlayerId];
       doCraft(ps.hotbar, ps.inventory, recipe);
+      audioManager.sfxCraft();
       this.syncRegistry();
     }, this);
 
@@ -169,6 +172,7 @@ export class GameScene extends Phaser.Scene {
     }, this);
 
     this.game.events.on('night-start', (nightNumber: number) => {
+      audioManager.sfxNightStart();
       this.startWave(nightNumber);
     }, this);
 
@@ -220,6 +224,7 @@ export class GameScene extends Phaser.Scene {
         this.gameState.phase = 'day';
         this.gameState.phaseTimer = C.DAY_DURATION_SEC;
         this.gameState.dayNumber += 1;
+        audioManager.sfxDayStart();
         this.game.events.emit('day-start', this.gameState.dayNumber);
       }
     }
@@ -250,6 +255,9 @@ export class GameScene extends Phaser.Scene {
       // Freeze player while any menu is open
       this.player.setVelocity(0, 0);
     } else {
+      const ps = this.gameState.players[this.localPlayerId];
+      this.player.setEquipped(ps.hotbar[ps.activeSlot]?.itemId ?? null);
+
       const facing = this.player.move({
         up:    this.keys.up.isDown,
         down:  this.keys.down.isDown,
@@ -259,7 +267,6 @@ export class GameScene extends Phaser.Scene {
 
       if (this.attackCooldownMs > 0) this.attackCooldownMs -= delta;
 
-      const ps = this.gameState.players[this.localPlayerId];
       ps.position.x = this.player.x;
       ps.position.y = this.player.y;
       ps.facing = facing;
@@ -463,9 +470,24 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (nearestEnemyId) {
+      audioManager.sfxMeleeAttack();
+      this.player.playAttackAnim('player-knife-interact');
+      const ps2 = this.gameState.players[this.localPlayerId];
+      const activeItem = ps2.hotbar[ps2.activeSlot];
+      const damage = (activeItem ? (ITEMS[activeItem.itemId]?.damage ?? 1) : 1);
       const enemy = this.activeEnemies.get(nearestEnemyId)!;
-      if (enemy.takeDamage(1)) this.killEnemy(nearestEnemyId);
+      if (enemy.takeDamage(damage)) {
+        this.killEnemy(nearestEnemyId);
+      } else {
+        audioManager.sfxEnemyHit();
+      }
     } else if (nearestNode) {
+      audioManager.sfxMeleeAttack();
+      const isRock = nearestNode.resourceType === 'rock'
+        || nearestNode.resourceType === 'iron_ore_node'
+        || nearestNode.resourceType === 'copper_ore_node';
+      this.player.playAttackAnim(isRock ? 'player-pickaxe-interact' : 'player-axe-interact');
+      audioManager.sfxGather();
       const result = nearestNode.hit();
       if (result.destroyed) this.destroyNode(nearestNode, result.drops);
       else if (result.drops.length > 0) this.spawnDrops(nearestNode.x, nearestNode.y, result.drops);
@@ -521,15 +543,24 @@ export class GameScene extends Phaser.Scene {
         ps.position.x, ps.position.y,
         this.house.x,  this.house.y,
       );
-      if (playerDmg > 0) ps.hp = Math.max(0, ps.hp - playerDmg);
+      if (playerDmg > 0) {
+        ps.hp = Math.max(0, ps.hp - playerDmg);
+        audioManager.sfxPlayerHit();
+        this.cameras.main.shake(60, 0.002);
+      }
       if (houseDmg  > 0) {
         this.houseHp = Math.max(0, this.houseHp - houseDmg);
         this.houseRegenCooldownMs = C.HOUSE_REGEN_COOLDOWN_SEC * 1000;
         this.houseRegenAccumMs = 0;
+        const distToHouse = Phaser.Math.Distance.Between(
+          ps.position.x, ps.position.y, this.house.x, this.house.y,
+        );
+        if (distToHouse <= C.HOUSE_AUDIO_RANGE) audioManager.sfxHouseHit();
         if (this.houseHp <= 0) {
           this.gameOver = true;
           this.player.setVelocity(0, 0);
           this.houseHpBarFill.setSize(0, 6);
+          audioManager.sfxGameOver();
           this.scene.stop('ui');
           this.scene.start('game-over', {
             nightsSurvived: this.gameState.nightNumber,
@@ -610,6 +641,8 @@ export class GameScene extends Phaser.Scene {
   private killEnemy(id: string): void {
     const enemy = this.activeEnemies.get(id);
     if (!enemy) return;
+    audioManager.sfxEnemyDeath();
+    this.createDeathParticles(enemy.x, enemy.y);
     this.spawnDrops(enemy.x, enemy.y, enemy.getDrops());
     enemy.destroy();
     this.activeEnemies.delete(id);
@@ -617,6 +650,22 @@ export class GameScene extends Phaser.Scene {
     this.waveKilled += 1;
     this.gameState.enemiesRemainingThisWave = Math.max(0, this.waveTotal - this.waveKilled);
     if (this.gameState.enemiesRemainingThisWave === 0) this.gameState.waveActive = false;
+  }
+
+  /** Burst of orange-red particles at the enemy's last position. */
+  private createDeathParticles(x: number, y: number): void {
+    const emitter = this.add.particles(x, y, 'particle', {
+      speed:    { min: 40, max: 100 },
+      angle:    { min: 0,  max: 360 },
+      scale:    { start: 2, end: 0 },
+      alpha:    { start: 1, end: 0 },
+      lifespan: 400,
+      tint:     0xff6633,
+      emitting: false,
+    });
+    emitter.setDepth(C.DEPTH_ENEMIES + 5);
+    emitter.explode(10);
+    this.time.delayedCall(500, () => { if (emitter.active) emitter.destroy(); });
   }
 
   /** Writes current GameState values into the shared registry for UIScene to read. */

@@ -30,15 +30,9 @@ export const RECIPES: RecipeDefinition[] = [
 
   // ── Weapons ────────────────────────────────────────────────────────────────
   {
-    id: 'stone_sword', label: 'Stone Sword', stationId: 'crafting_bench',
-    inputs:  [{ itemId: 'wood', quantity: 3 }, { itemId: 'stone', quantity: 8 }],
-    outputs: [{ itemId: 'stone_sword', quantity: 1 }],
-    craftTimeMs: 1500,
-  },
-  {
-    id: 'copper_sword', label: 'Copper Sword', stationId: 'crafting_bench',
-    inputs:  [{ itemId: 'copper_ore', quantity: 5 }, { itemId: 'wood', quantity: 3 }],
-    outputs: [{ itemId: 'copper_sword', quantity: 1 }],
+    id: 'iron_sword', label: 'Iron Sword', stationId: 'crafting_bench',
+    inputs:  [{ itemId: 'iron_ore', quantity: 10 }, { itemId: 'wood', quantity: 10 }],
+    outputs: [{ itemId: 'iron_sword', quantity: 1 }],
     craftTimeMs: 2000,
   },
   {

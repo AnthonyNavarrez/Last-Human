@@ -14,29 +14,23 @@ export class UIScene extends Phaser.Scene {
   private dayNightTimer!: DayNightTimer;
   private playerHpBar!: HealthBar;
   private nightOverlay!: Phaser.GameObjects.Rectangle;
+  private lastPhase = '';
 
   constructor() {
     super({ key: 'ui' });
   }
 
   create(): void {
-    // Night overlay sits behind all UI elements; alpha driven by game events
+    // Night overlay: depth 90 puts it above game world but below UI (hotbar = 100, hp bar = 150)
     this.nightOverlay = this.add.rectangle(0, 0, this.scale.width, this.scale.height, 0x000033, 0)
       .setOrigin(0, 0)
-      .setDepth(1);
+      .setDepth(90);
 
     this.hotbar = new Hotbar(this);
     this.craftingMenu = new CraftingMenu(this);
     this.minerMenu = new MinerMenu(this);
     this.dayNightTimer = new DayNightTimer(this);
     this.playerHpBar = new HealthBar(this, 12, this.scale.height - 36, 'HP');
-
-    this.game.events.on('night-start', () => {
-      this.tweens.add({ targets: this.nightOverlay, alpha: 0.45, duration: 2000, ease: 'Sine.easeIn' });
-    });
-    this.game.events.on('day-start', () => {
-      this.tweens.add({ targets: this.nightOverlay, alpha: 0, duration: 2000, ease: 'Sine.easeOut' });
-    });
 
     this.scale.on('resize', () => {
       this.nightOverlay.setSize(this.scale.width, this.scale.height);
@@ -79,6 +73,17 @@ export class UIScene extends Phaser.Scene {
 
     if (phase !== undefined && phaseTimer !== undefined) {
       this.dayNightTimer.sync(phase, dayNumber ?? 1, nightNum ?? 0, phaseTimer);
+    }
+
+    if (phase && phase !== this.lastPhase) {
+      this.lastPhase = phase;
+      this.tweens.killTweensOf(this.nightOverlay);
+      this.tweens.add({
+        targets:  this.nightOverlay,
+        alpha:    phase === 'night' ? 0.50 : 0,
+        duration: 2000,
+        ease:     phase === 'night' ? 'Sine.easeIn' : 'Sine.easeOut',
+      });
     }
 
     if (playerHp !== undefined && playerMax !== undefined) {

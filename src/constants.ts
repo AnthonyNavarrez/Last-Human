@@ -59,4 +59,7 @@ export const C = {
   // Enemy spawning
   ENEMY_SPAWN_DIST_MIN: 320,
   ENEMY_SPAWN_DIST_MAX: 500,
+
+  // Audio
+  HOUSE_AUDIO_RANGE: 300,   // max px from house to hear house-hit sound
 } as const;
