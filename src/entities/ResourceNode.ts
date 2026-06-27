@@ -64,7 +64,7 @@ export class ResourceNode extends Phaser.GameObjects.Sprite {
     if (type === 'tree') {
       this.setScale(0.5);
       const body = this.body as Phaser.Physics.Arcade.StaticBody;
-      const bw = 30, bh = 88;
+      const bw = 30, bh = 50;
       body.width = bw;
       body.height = bh;
       body.x = x - bw / 2;
