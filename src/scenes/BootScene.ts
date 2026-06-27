@@ -7,7 +7,7 @@ export class BootScene extends Phaser.Scene {
 
   preload(): void {
     this.load.tilemapTiledJSON('map', 'assets/tiles/map.json');
-    this.load.image('TilesetFloor', 'assets/Asset Pack/Backgrounds/Tilesets/TilesetFloor.png');
+    this.load.image('TilesetFloor', 'assets/AssetPack2/Terrain/Tileset/Tilemap_color2.png');
     this.load.spritesheet('pawn-idle',
       'assets/AssetPack2/Units/Black Units/Pawn/Pawn_Idle.png',
       { frameWidth: 192, frameHeight: 192 },
@@ -53,7 +53,7 @@ export class BootScene extends Phaser.Scene {
       { frameWidth: 192, frameHeight: 192 },
     );
     // Resource nodes
-    this.load.image('node-tree',       'assets/sprites/tree.png');
+    this.load.spritesheet('node-tree', 'assets/AssetPack2/Terrain/Resources/Wood/Trees/Tree3.png', { frameWidth: 192, frameHeight: 192 });
     this.load.image('node-rock',       'assets/sprites/rock.png');
     this.load.image('node-iron-ore',   'assets/sprites/iron-ore-node.png');
     this.load.image('node-copper-ore', 'assets/sprites/copper-ore-node.png');

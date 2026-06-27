@@ -45,7 +45,7 @@ const NODE_DEFS: Record<ResourceType, NodeDef> = {
   },
 };
 
-export class ResourceNode extends Phaser.GameObjects.Image {
+export class ResourceNode extends Phaser.GameObjects.Sprite {
   readonly resourceType: ResourceType;
   private hp: number;
   private hitsTaken = 0;
@@ -54,13 +54,27 @@ export class ResourceNode extends Phaser.GameObjects.Image {
 
   constructor(scene: Phaser.Scene, x: number, y: number, type: ResourceType) {
     const def = NODE_DEFS[type];
-    super(scene, x, y, def.spriteKey);
+    super(scene, x, y, def.spriteKey, type === 'tree' ? 0 : undefined);
     scene.add.existing(this);
     scene.physics.add.existing(this, true);
     this.resourceType = type;
     this.hp = def.hp;
     this.dropInterval = def.dropInterval;
     this.drops = def.drops;
+    if (type === 'tree') {
+      this.setScale(0.5);
+      const body = this.body as Phaser.Physics.Arcade.StaticBody;
+      const bw = 30, bh = 88;
+      body.width = bw;
+      body.height = bh;
+      body.x = x - bw / 2;
+      body.y = y - bh / 2;
+      body.updateCenter();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const wld = (scene.physics.world as any);
+      wld.staticTree.remove(body);
+      wld.staticTree.insert(body);
+    }
     this.setDepth(C.DEPTH_OBJECTS);
   }
 
