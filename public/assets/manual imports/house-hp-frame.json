@@ -1,0 +1,8 @@
+{
+  "frames": {
+    "left":   { "frame": {"x":49,  "y":22, "w":15, "h":19}, "rotated":false, "trimmed":true, "spriteSourceSize":{"x":0,"y":0,"w":15,"h":19}, "sourceSize":{"w":15,"h":19} },
+    "middle": { "frame": {"x":128, "y":22, "w":64, "h":19}, "rotated":false, "trimmed":true, "spriteSourceSize":{"x":0,"y":0,"w":64,"h":19}, "sourceSize":{"w":64,"h":19} },
+    "right":  { "frame": {"x":256, "y":22, "w":15, "h":19}, "rotated":false, "trimmed":true, "spriteSourceSize":{"x":0,"y":0,"w":15,"h":19}, "sourceSize":{"w":15,"h":19} }
+  },
+  "meta": { "image":"SmallBar_Base.png", "size":{"w":320,"h":64}, "scale":1 }
+}

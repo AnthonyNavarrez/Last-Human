@@ -8,6 +8,17 @@ export class CraftingBench extends Phaser.GameObjects.Image {
     scene.add.existing(this);
     scene.physics.add.existing(this, true);
     this.setDepth(C.DEPTH_OBJECTS);
-    this.setScale(1.5);
+    this.setDisplaySize(C.TILE_SIZE * 2, C.TILE_SIZE * 2);
+    const body = this.body as Phaser.Physics.Arcade.StaticBody;
+    const bw = C.TILE_SIZE * 2, bh = C.TILE_SIZE * 2;
+    body.width = bw;
+    body.height = bh;
+    body.x = x - bw / 2;
+    body.y = y - bh / 2;
+    body.updateCenter();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const wld = (scene.physics.world as any);
+    wld.staticTree.remove(body);
+    wld.staticTree.insert(body);
   }
 }

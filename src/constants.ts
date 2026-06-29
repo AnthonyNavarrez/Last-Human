@@ -8,10 +8,10 @@ export const C = {
   MAP_WIDTH_TILES:   200,
   MAP_HEIGHT_TILES:  200,
   PLAYER_SPAWN:      { x: 1600, y: 1600 },
-  CAMERA_ZOOM:       2,
+  CAMERA_ZOOM:       3,
 
   // Phase
-  DAY_DURATION_SEC:  60,
+  DAY_DURATION_SEC:  180,
   NIGHT_DURATION_SEC: 20,
 
   // Player
@@ -21,7 +21,7 @@ export const C = {
 
   // Inventory
   HOTBAR_SIZE:    8,
-  INVENTORY_ROWS: 4,
+  INVENTORY_ROWS: 2,
   INVENTORY_COLS: 8,
 
   // House
@@ -43,8 +43,8 @@ export const C = {
   DEPTH_DROPPED_ITEMS: 5,
   DEPTH_UI:           100,
 
-  // Auto Miner
-  AUTO_MINER_WOOD_POWER: 3,      // 1 wood → 3 mining hits
+  // Auto Miner / Saw
+  AUTO_MINER_BATTERY_POWER: 200, // 1 battery → 200 hits
   AUTO_MINER_RANGE: 80,           // pixels — how far it searches for a resource node
   AUTO_MINER_INTERVAL_MS: 2000,   // ms between hits (halved with pickaxe installed)
 

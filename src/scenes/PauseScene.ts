@@ -30,9 +30,11 @@ export class PauseScene extends Phaser.Scene {
 
     resumeBtn.on('pointerover', () => resumeBtn.setStyle({ color: '#e8c96e' }));
     resumeBtn.on('pointerout',  () => resumeBtn.setStyle({ color: '#ffffff' }));
-    resumeBtn.on('pointerdown', () => this.scene.stop('pause'));
+    const resume = () => { this.scene.resume('game'); this.scene.stop('pause'); };
+
+    resumeBtn.on('pointerdown', resume);
 
     const esc = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
-    esc.once('down', () => this.scene.stop('pause'));
+    esc.once('down', resume);
   }
 }

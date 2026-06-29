@@ -27,9 +27,15 @@ const WEAPON_ANIMS: Record<string, { idle: string; run: string; interact: string
     run:      'player-knife-run',
     interact: 'player-knife-interact',
   },
+  bow: {
+    idle:     'player-bow-idle',
+    run:      'player-bow-run',
+    interact: 'player-idle',
+  },
 };
 
 export class Player extends Phaser.Physics.Arcade.Sprite {
+  public speed = C.PLAYER_SPEED;
   private facing: 'up' | 'down' | 'left' | 'right' = 'down';
   private equippedItemId: string | null = null;
   private isAttacking = false;
@@ -106,6 +112,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     register('player-knife-idle',        'pawn-idle-knife',       0, 7, 8);
     register('player-knife-run',         'pawn-run-knife',        0, 5, 10);
     registerOnce('player-knife-interact',    'pawn-interact-knife',   0, 3, 16);
+    register('player-bow-idle',          'pawn-idle-bow',         0, 7, 8);
+    register('player-bow-run',           'pawn-run-bow',          0, 5, 10);
   }
 
   /** Applies movement input, updates velocity and animation. Returns current facing direction. */
@@ -113,10 +121,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     let vx = 0;
     let vy = 0;
 
-    if (input.left)  vx -= C.PLAYER_SPEED;
-    if (input.right) vx += C.PLAYER_SPEED;
-    if (input.up)    vy -= C.PLAYER_SPEED;
-    if (input.down)  vy += C.PLAYER_SPEED;
+    if (input.left)  vx -= this.speed;
+    if (input.right) vx += this.speed;
+    if (input.up)    vy -= this.speed;
+    if (input.down)  vy += this.speed;
 
     if (vx !== 0 && vy !== 0) {
       vx *= Math.SQRT1_2;

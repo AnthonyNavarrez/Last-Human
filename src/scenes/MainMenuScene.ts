@@ -9,9 +9,10 @@ export class MainMenuScene extends Phaser.Scene {
     const cx = this.scale.width / 2;
     const cy = this.scale.height / 2;
 
-    this.add.rectangle(0, 0, this.scale.width, this.scale.height, 0x0d1117).setOrigin(0, 0);
+    this.add.image(cx, cy, 'opening-screen')
+      .setDisplaySize(this.scale.width, this.scale.height);
 
-    this.add.text(cx, cy - 80, 'LAST HUMAN', {
+    this.add.text(cx, cy - 280, 'LAST HUMAN', {
       fontSize: '64px',
       fontFamily: 'monospace',
       color: '#e8c96e',
@@ -19,26 +20,30 @@ export class MainMenuScene extends Phaser.Scene {
       strokeThickness: 6,
     }).setOrigin(0.5);
 
-    this.add.text(cx, cy - 20, 'Survive the night. Every night.', {
-      fontSize: '18px',
-      fontFamily: 'monospace',
-      color: '#8fa3b1',
-    }).setOrigin(0.5);
+    // Derive a single scale so the play button renders at 160px wide;
+    // apply the same scale to the settings button so both look identical in size.
+    const playNatural = this.textures.get('play-button').getSourceImage() as HTMLImageElement;
+    const btnScale = 160 / playNatural.width;
 
-    const playBtn = this.add.text(cx, cy + 60, '[ PLAY ]', {
-      fontSize: '32px',
-      fontFamily: 'monospace',
-      color: '#ffffff',
-      backgroundColor: '#2a5f2a',
-      padding: { x: 20, y: 10 },
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    const playBtn = this.add.image(cx, cy - 180, 'play-button')
+      .setScale(btnScale)
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
 
-    playBtn.on('pointerover', () => playBtn.setStyle({ color: '#e8c96e' }));
-    playBtn.on('pointerout',  () => playBtn.setStyle({ color: '#ffffff' }));
-    playBtn.on('pointerdown', () => {
+    playBtn.on('pointerover',  () => playBtn.setScale(btnScale * 1.05));
+    playBtn.on('pointerout',   () => playBtn.setScale(btnScale));
+    playBtn.on('pointerdown',  () => {
       this.scene.start('game');
       this.scene.launch('ui');
       this.scene.stop('menu');
     });
+
+    const settingsBtn = this.add.image(cx, cy - 110, 'settings-button')
+      .setScale(btnScale)
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+
+    settingsBtn.on('pointerover', () => settingsBtn.setScale(btnScale * 1.05));
+    settingsBtn.on('pointerout',  () => settingsBtn.setScale(btnScale));
   }
 }

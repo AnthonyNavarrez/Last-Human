@@ -22,6 +22,13 @@ export interface PlayerState extends EntityState {
   activeSlot: number;
   facing: 'up' | 'down' | 'left' | 'right';
   velocity: Vec2;
+  coins: number;
+  speed: number;
+  armor: number;
+  strength: number;
+  skillSpeed: number;
+  skillStrength: number;
+  skillDefence: number;
 }
 
 export interface GameState {
@@ -29,6 +36,7 @@ export interface GameState {
   dayNumber: number;
   nightNumber: number;
   phaseTimer: number;
+  houseLevel: number;
 
   players: Record<string, PlayerState>;
   enemies: Record<string, EntityState>;
@@ -51,10 +59,24 @@ export function createInitialState(localPlayerId: string): GameState {
     hp: C.PLAYER_HP,
     maxHp: C.PLAYER_HP,
     inventory: Array<null>(inventorySize).fill(null),
-    hotbar: Array<null>(C.HOTBAR_SIZE).fill(null),
+    hotbar: (() => {
+      const hb = Array<ItemStack | null>(C.HOTBAR_SIZE).fill(null);
+      hb[0] = { itemId: 'wood',       quantity: 50 };
+      hb[1] = { itemId: 'iron_ore',   quantity: 50 };
+      hb[2] = { itemId: 'stone',      quantity: 50 };
+      hb[3] = { itemId: 'copper_ore', quantity: 50 };
+      return hb;
+    })(),
     activeSlot: 0,
     facing: 'down',
     velocity: { x: 0, y: 0 },
+    coins: 0,
+    speed: C.PLAYER_SPEED,
+    armor: 0,
+    strength: 0,
+    skillSpeed: 1,
+    skillStrength: 1,
+    skillDefence: 1,
   };
 
   return {
@@ -62,6 +84,7 @@ export function createInitialState(localPlayerId: string): GameState {
     dayNumber: 1,
     nightNumber: 0,
     phaseTimer: C.DAY_DURATION_SEC,
+    houseLevel: 1,
     players: { [localPlayerId]: playerState },
     enemies: {},
     buildings: {},

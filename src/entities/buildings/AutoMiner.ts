@@ -5,6 +5,8 @@ import { ResourceNode } from '../ResourceNode';
 export class AutoMiner extends Phaser.GameObjects.Image {
   power = 0;
   hasPickaxe = false;
+  outputItemId: string | null = null;
+  outputQuantity = 0;
   readonly targetNode: ResourceNode;
   readonly eIcon: Phaser.GameObjects.Container;
   private intervalAccum = 0;
@@ -22,9 +24,26 @@ export class AutoMiner extends Phaser.GameObjects.Image {
     this.eIcon = makeEIcon(scene, node.x, node.y);
   }
 
-  addFuel(woodCount: number): void {
-    this.power += woodCount * C.AUTO_MINER_WOOD_POWER;
+  addFuel(count: number): void {
+    this.power += count * C.AUTO_MINER_BATTERY_POWER;
     this.setAlpha(1);
+  }
+
+  addOutput(drop: { itemId: string; quantity: number }): void {
+    if (!this.outputItemId || this.outputItemId === drop.itemId) {
+      this.outputItemId = drop.itemId;
+      this.outputQuantity += drop.quantity;
+    }
+  }
+
+  getOutput(): { itemId: string; quantity: number } | null {
+    if (!this.outputItemId) return null;
+    return { itemId: this.outputItemId, quantity: this.outputQuantity };
+  }
+
+  clearOutput(): void {
+    this.outputItemId = null;
+    this.outputQuantity = 0;
   }
 
   /** Returns true if the miner should hit its node this tick. */

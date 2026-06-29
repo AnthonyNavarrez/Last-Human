@@ -12,50 +12,85 @@ export interface EnemyDefinition {
   firstNight: number;      // first night this enemy can appear
   lastNight: number;       // last night this enemy can appear (-1 = no limit)
   pathfinding: 'direct' | 'steering';
+  animStyle?: '4dir' | 'strip'; // '4dir' = 4-col directional sheet; 'strip' = single row
+  frameCount?: number;          // frames in strip animation
+  useAtlas?: boolean;           // true = texture atlas with string frame names "0","1",...
+  attackSpriteKey?: string;     // separate atlas key for attack animation
+  attackFrameCount?: number;    // total frames in the attack atlas
+  attackFrameIndices?: number[]; // subset of frame indices to actually play (default: all)
+  displaySize?: { w: number; h: number }; // override display size (for high-res sheets)
+  projectileKey?: string;       // if set, enemy fires projectiles instead of melee hits
+  projectileSpeed?: number;     // projectile travel speed in px/s
 }
 
 export const ENEMIES: Record<string, EnemyDefinition> = {
-  snake2: {
-    id: 'snake2', label: 'Snake',
-    spriteKey: 'enemy-snake2',
+  skeleton: {
+    id: 'skeleton', label: 'Skeleton',
+    spriteKey: 'enemy-skeleton',
     hp: 10, damage: 2, speed: 55,
     attackRange: 20, attackSpeed: 0.8, aggroRange: 160,
-    drops: [{ itemId: 'gem', quantity: 1, chance: 0.75 }],
+    drops: [{ itemId: 'coin', quantity: 1, chance: 0.75 }],
     firstNight: 1, lastNight: 3,
     pathfinding: 'direct',
+    animStyle: 'strip', frameCount: 6, useAtlas: true,
+    attackSpriteKey: 'enemy-skeleton-attack', attackFrameCount: 6, attackFrameIndices: [0, 1, 2, 4, 5],
+    displaySize: { w: 34, h: 24 },
   },
-  gold_racoon: {
-    id: 'gold_racoon', label: 'Gold Raccoon',
-    spriteKey: 'enemy-gold-racoon',
-    hp: 8, damage: 1, speed: 65,
-    attackRange: 20, attackSpeed: 0.7, aggroRange: 140,
-    drops: [{ itemId: 'gem', quantity: 1, chance: 0.50 }],
+  mercenary: {
+    id: 'mercenary', label: 'Mercenary',
+    spriteKey: 'enemy-mercenary',
+    hp: 8, damage: 2, speed: 70,
+    attackRange: 20, attackSpeed: 2, aggroRange: 160,
+    drops: [
+      { itemId: 'coin', quantity: 1, chance: 1.00 },
+      { itemId: 'coin', quantity: 2, chance: 0.50 },
+      { itemId: 'coin', quantity: 2, chance: 0.25 },
+    ],
     firstNight: 1, lastNight: 4,
     pathfinding: 'direct',
+    animStyle: 'strip', frameCount: 6, useAtlas: true,
+    displaySize: { w: 26, h: 26 },
   },
-  bear: {
-    id: 'bear', label: 'Bear',
-    spriteKey: 'enemy-bear',
-    hp: 20, damage: 5, speed: 45,
-    attackRange: 28, attackSpeed: 0.5, aggroRange: 180,
-    // Always drops 1 gem; 75% chance for a second gem
+  orc: {
+    id: 'orc', label: 'Orc',
+    spriteKey: 'enemy-orc',
+    hp: 20, damage: 4, speed: 50,
+    attackRange: 150, attackSpeed: 0.9, aggroRange: 220,
     drops: [
-      { itemId: 'gem',     quantity: 1, chance: 1.00 },
-      { itemId: 'gem',     quantity: 1, chance: 0.75 },
-      { itemId: 'leather', quantity: 1, chance: 0.60 },
+      { itemId: 'coin', quantity: 3, chance: 0.50 },
+      { itemId: 'coin', quantity: 2, chance: 0.50 },
     ],
-    firstNight: 3, lastNight: 6,
+    firstNight: 3, lastNight: -1,
     pathfinding: 'direct',
+    animStyle: 'strip', frameCount: 6,
+    displaySize: { w: 32, h: 35 },
+    projectileKey: 'fire-projectile',
+    projectileSpeed: 180,
+  },
+  spider: {
+    id: 'spider', label: 'Spider',
+    spriteKey: 'enemy-spider',
+    hp: 20, damage: 3, speed: 85,
+    attackRange: 22, attackSpeed: 1.3, aggroRange: 180,
+    drops: [
+      { itemId: 'coin', quantity: 4, chance: 0.70 },
+      { itemId: 'coin', quantity: 3, chance: 0.30 },
+    ],
+    firstNight: 1, lastNight: -1,
+    pathfinding: 'direct',
+    animStyle: 'strip', frameCount: 5,
+    attackSpriteKey: 'enemy-spider-attack', attackFrameCount: 6,
+    displaySize: { w: 28, h: 25 },
   },
   yellow_bat: {
     id: 'yellow_bat', label: 'Yellow Bat',
     spriteKey: 'enemy-yellow-bat',
     hp: 35, damage: 8, speed: 90,
     attackRange: 18, attackSpeed: 1.2, aggroRange: 220,
-    // Always drops 1 gem; 85% chance for a second gem
+    // Always drops 1 coin; 85% chance for a second coin
     drops: [
-      { itemId: 'gem', quantity: 1, chance: 1.00 },
-      { itemId: 'gem', quantity: 1, chance: 0.85 },
+      { itemId: 'coin', quantity: 1, chance: 1.00 },
+      { itemId: 'coin', quantity: 1, chance: 0.85 },
     ],
     firstNight: 4, lastNight: -1,
     pathfinding: 'direct',

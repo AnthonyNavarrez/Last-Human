@@ -1,0 +1,132 @@
+{
+  "frames": {
+    "0": {
+      "frame": {
+        "x": 17,
+        "y": 17,
+        "w": 612,
+        "h": 557
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 124,
+        "y": 34,
+        "w": 612,
+        "h": 557
+      },
+      "sourceSize": {
+        "w": 861,
+        "h": 608
+      }
+    },
+    "1": {
+      "frame": {
+        "x": 986,
+        "y": 34,
+        "w": 594,
+        "h": 574
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 133,
+        "y": 25,
+        "w": 594,
+        "h": 574
+      },
+      "sourceSize": {
+        "w": 861,
+        "h": 608
+      }
+    },
+    "2": {
+      "frame": {
+        "x": 1852,
+        "y": 51,
+        "w": 595,
+        "h": 557
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 133,
+        "y": 34,
+        "w": 595,
+        "h": 557
+      },
+      "sourceSize": {
+        "w": 861,
+        "h": 608
+      }
+    },
+    "3": {
+      "frame": {
+        "x": 2736,
+        "y": 17,
+        "w": 544,
+        "h": 557
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 158,
+        "y": 34,
+        "w": 544,
+        "h": 557
+      },
+      "sourceSize": {
+        "w": 861,
+        "h": 608
+      }
+    },
+    "4": {
+      "frame": {
+        "x": 3620,
+        "y": 17,
+        "w": 509,
+        "h": 574
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 176,
+        "y": 25,
+        "w": 509,
+        "h": 574
+      },
+      "sourceSize": {
+        "w": 861,
+        "h": 608
+      }
+    },
+    "5": {
+      "frame": {
+        "x": 4554,
+        "y": 51,
+        "w": 612,
+        "h": 557
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 124,
+        "y": 34,
+        "w": 612,
+        "h": 557
+      },
+      "sourceSize": {
+        "w": 861,
+        "h": 608
+      }
+    }
+  },
+  "meta": {
+    "image": "skeleton-run.png",
+    "size": {
+      "w": 5166,
+      "h": 608
+    },
+    "scale": 1
+  }
+}

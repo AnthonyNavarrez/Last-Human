@@ -60,6 +60,13 @@ export class AudioManager {
     });
   }
 
+  sfxHammerHit(): void {
+    this.play((ctx, t) => {
+      this.osc(ctx, 'square', 220, 80,  t,       0.06, 0.18);
+      this.osc(ctx, 'sine',   440, 120, t,       0.04, 0.10);
+    });
+  }
+
   sfxHouseHit(): void {
     this.play((ctx, t) => { this.osc(ctx, 'square', 70, 30, t, 0.2, 0.25); });
   }

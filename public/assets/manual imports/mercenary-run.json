@@ -1,0 +1,132 @@
+{
+  "frames": {
+    "0": {
+      "frame": {
+        "x": 20,
+        "y": 20,
+        "w": 679,
+        "h": 865
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 110,
+        "y": 20,
+        "w": 679,
+        "h": 865
+      },
+      "sourceSize": {
+        "w": 899,
+        "h": 904
+      }
+    },
+    "1": {
+      "frame": {
+        "x": 1139,
+        "y": 20,
+        "w": 699,
+        "h": 904
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 100,
+        "y": 0,
+        "w": 699,
+        "h": 904
+      },
+      "sourceSize": {
+        "w": 899,
+        "h": 904
+      }
+    },
+    "2": {
+      "frame": {
+        "x": 2298,
+        "y": 20,
+        "w": 739,
+        "h": 865
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 80,
+        "y": 20,
+        "w": 739,
+        "h": 865
+      },
+      "sourceSize": {
+        "w": 899,
+        "h": 904
+      }
+    },
+    "3": {
+      "frame": {
+        "x": 3476,
+        "y": 20,
+        "w": 899,
+        "h": 806
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 49,
+        "w": 899,
+        "h": 806
+      },
+      "sourceSize": {
+        "w": 899,
+        "h": 904
+      }
+    },
+    "4": {
+      "frame": {
+        "x": 4775,
+        "y": 20,
+        "w": 719,
+        "h": 865
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 90,
+        "y": 20,
+        "w": 719,
+        "h": 865
+      },
+      "sourceSize": {
+        "w": 899,
+        "h": 904
+      }
+    },
+    "5": {
+      "frame": {
+        "x": 5934,
+        "y": 20,
+        "w": 679,
+        "h": 865
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 110,
+        "y": 20,
+        "w": 679,
+        "h": 865
+      },
+      "sourceSize": {
+        "w": 899,
+        "h": 904
+      }
+    }
+  },
+  "meta": {
+    "image": "mercenary-run.png",
+    "size": {
+      "w": 6633,
+      "h": 944
+    },
+    "scale": 1
+  }
+}
