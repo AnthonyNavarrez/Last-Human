@@ -6,6 +6,14 @@ const BAR_W = 16;
 const BAR_H = 3;
 const BAR_OFFSET_Y = 11; // pixels above enemy centre
 
+interface EnemyTickResult {
+  playerDmg: number;
+  houseDmg: number;
+  buildingDmg: number;
+  buildingIdx: number;
+  projectile: { x: number; y: number; angle: number; key: string; speed: number; damage: number } | null;
+}
+
 export class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
   private readonly def: EnemyDefinition;
   private _hp: number;
@@ -15,6 +23,13 @@ export class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
   private cachedDrops: { itemId: string; quantity: number }[] | null = null;
   private hpBarBg!: Phaser.GameObjects.Rectangle;
   private hpBarFill!: Phaser.GameObjects.Rectangle;
+  // Natural enemies: spawn point they wander back to, and whether they're currently chasing a player
+  private readonly origin: { x: number; y: number };
+  private naturalAggro = false;
+  // Multiplayer interpolation
+  private mpTargetX = 0;
+  private mpTargetY = 0;
+  private mpReady = false;
 
   constructor(scene: Phaser.Scene, x: number, y: number, def: EnemyDefinition) {
     super(scene, x, y, def.spriteKey, 0);
@@ -22,11 +37,12 @@ export class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
     scene.physics.add.existing(this);
     this.def = def;
     this._hp = def.hp;
+    this.origin = { x, y };
     this.setDepth(C.DEPTH_ENEMIES);
     this.setCollideWorldBounds(true);
-    if (def.displaySize) this.setDisplaySize(def.displaySize.w, def.displaySize.h);
     this.registerAnimations();
-    this.play(`${def.spriteKey}-walk-down`);
+    this.play(def.idleSpriteKey ? `${def.idleSpriteKey}-anim` : `${def.spriteKey}-walk-down`);
+    if (def.displaySize) this.setDisplaySize(def.displaySize.w, def.displaySize.h);
 
     this.hpBarBg = scene.add.rectangle(x - BAR_W / 2, y - BAR_OFFSET_Y, BAR_W, BAR_H, 0x222222)
       .setOrigin(0, 0.5).setDepth(C.DEPTH_ENEMIES + 2).setVisible(false);
@@ -35,6 +51,9 @@ export class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
   }
 
   get isDead(): boolean { return this._hp <= 0; }
+
+  /** The enemy definition id (e.g. 'bear'), used to count alive instances per type. */
+  get enemyId(): string { return this.def.id; }
 
   /**
    * Move toward player (if within aggroRange), nearest blocking canon, or house.
@@ -45,11 +64,12 @@ export class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
     playerX: number, playerY: number,
     houseX: number,  houseY: number,
     buildings: { x: number; y: number; isDead: boolean }[] = [],
-  ): { playerDmg: number; houseDmg: number; buildingDmg: number; buildingIdx: number;
-       projectile: { x: number; y: number; angle: number; key: string; speed: number; damage: number } | null } {
+  ): EnemyTickResult {
     const NONE = { playerDmg: 0, houseDmg: 0, buildingDmg: 0, buildingIdx: -1, projectile: null } as const;
     if (this._hp <= 0) { this.setVelocity(0, 0); return NONE; }
     if (this.knockbackMs > 0) { this.knockbackMs -= delta; return NONE; }
+
+    if (this.def.isNatural) return this.tickNatural(delta, playerX, playerY);
 
     const distToPlayer = Phaser.Math.Distance.Between(this.x, this.y, playerX, playerY);
     const distToHouse  = Phaser.Math.Distance.Between(this.x, this.y, houseX,  houseY);
@@ -122,6 +142,89 @@ export class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
     return NONE;
   }
 
+  /**
+   * Natural enemies (e.g. bear) ignore buildings and the house, and only ever
+   * target the player. They idle at their spawn point until a player wanders
+   * within aggroRange, then chase — once aggroed, they never give up the chase.
+   */
+  private tickNatural(delta: number, playerX: number, playerY: number): EnemyTickResult {
+    const NONE = { playerDmg: 0, houseDmg: 0, buildingDmg: 0, buildingIdx: -1, projectile: null } as const;
+    const distToPlayer = Phaser.Math.Distance.Between(this.x, this.y, playerX, playerY);
+
+    if (!this.naturalAggro && distToPlayer <= this.def.aggroRange) {
+      this.naturalAggro = true;
+    }
+
+    let targetX: number, targetY: number, targetDist: number;
+    if (this.naturalAggro) {
+      targetX = playerX; targetY = playerY; targetDist = distToPlayer;
+    } else {
+      targetX = this.origin.x; targetY = this.origin.y;
+      targetDist = Phaser.Math.Distance.Between(this.x, this.y, targetX, targetY);
+    }
+
+    const stopDist = this.naturalAggro ? this.def.attackRange : 4;
+    let vx = 0, vy = 0;
+    if (targetDist > stopDist) {
+      const angle = Math.atan2(targetY - this.y, targetX - this.x);
+      vx = Math.cos(angle) * this.def.speed;
+      vy = Math.sin(angle) * this.def.speed;
+    }
+    this.setVelocity(vx, vy);
+    this.updateAnim(vx, vy);
+    this.syncHpBar();
+
+    if (this.attackCooldownMs > 0) { this.attackCooldownMs -= delta; return NONE; }
+
+    if (this.naturalAggro && targetDist <= this.def.attackRange) {
+      this.attackCooldownMs = 1000 / this.def.attackSpeed;
+      this.playAttackAnim();
+      return { ...NONE, playerDmg: this.def.damage };
+    }
+
+    return NONE;
+  }
+
+  /**
+   * Multiplayer: apply authoritative position and HP from server snapshot.
+   * Drives animation from movement delta without running local AI.
+   */
+  /**
+   * Multiplayer: store the authoritative server target; the actual sprite movement
+   * is driven by tickMultiplayer() every frame for smooth interpolation.
+   */
+  applyServerUpdate(x: number, y: number, hp: number): void {
+    this.mpTargetX = x;
+    this.mpTargetY = y;
+    if (!this.mpReady) {
+      // First update: teleport to starting position immediately
+      this.setPosition(x, y);
+      this.mpReady = true;
+    }
+    if (hp < this._hp) {
+      this._hp = hp;
+      this.syncHpBar();
+      this.scene.tweens.killTweensOf(this);
+      this.setAlpha(1);
+      this.scene.tweens.add({ targets: this, alpha: 0.3, duration: 80, yoyo: true });
+    } else if (hp !== this._hp) {
+      this._hp = hp;
+      this.syncHpBar();
+    }
+  }
+
+  /** Multiplayer per-frame update: lerp toward latest server target. */
+  tickMultiplayer(delta: number): void {
+    if (!this.mpReady) return;
+    const dx = this.mpTargetX - this.x;
+    const dy = this.mpTargetY - this.y;
+    const t = Math.min(1, (delta / 1000) * 20);
+    this.setPosition(this.x + dx * t, this.y + dy * t);
+    (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+    this.updateAnim(dx, dy);
+    this.syncHpBar();
+  }
+
   /** Push the enemy away from (fromX, fromY) briefly. */
   knockback(fromX: number, fromY: number, force = 80, durationMs = 120): void {
     const angle = Math.atan2(this.y - fromY, this.x - fromX);
@@ -132,6 +235,7 @@ export class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
   /** Apply incoming damage. Returns true if this hit killed the enemy. */
   takeDamage(amount: number): boolean {
     this._hp -= amount;
+    if (this.def.isNatural) this.naturalAggro = true;
     this.scene.tweens.killTweensOf(this);
     this.setAlpha(1);
     this.scene.tweens.add({ targets: this, alpha: 0.3, duration: 80, yoyo: true });
@@ -162,9 +266,14 @@ export class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
     super.destroy(fromScene);
   }
 
-  /** Returns the drop table rolled at time of death. */
+  /** Returns the drop table, rolling it now if not already cached (multiplayer path). */
   getDrops(): { itemId: string; quantity: number }[] {
-    return this.cachedDrops ?? [];
+    if (this.cachedDrops === null) {
+      this.cachedDrops = this.def.drops
+        .filter(d => Math.random() < d.chance)
+        .map(d => ({ itemId: d.itemId, quantity: d.quantity }));
+    }
+    return this.cachedDrops;
   }
 
   /**
@@ -198,6 +307,19 @@ export class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
             frames: indices.map(i => ({ key: this.def.attackSpriteKey!, frame: String(i) })),
             frameRate: 10,
             repeat: 0,
+          });
+        }
+      }
+
+      if (this.def.idleSpriteKey) {
+        const idleKey = `${this.def.idleSpriteKey}-anim`;
+        const idleCount = this.def.idleFrameCount ?? 4;
+        if (!anims.exists(idleKey)) {
+          anims.create({
+            key: idleKey,
+            frames: Array.from({ length: idleCount }, (_, i) => ({ key: this.def.idleSpriteKey!, frame: String(i) })),
+            frameRate: 6,
+            repeat: -1,
           });
         }
       }
@@ -241,16 +363,28 @@ export class BaseEnemy extends Phaser.Physics.Arcade.Sprite {
     if (this.isPlayingAttack) return;
     const key    = this.def.spriteKey;
     const moving = Math.abs(vx) > 1 || Math.abs(vy) > 1;
-    if (!moving) return;
 
     if (this.def.animStyle === 'strip') {
+      if (!moving && this.def.idleSpriteKey) {
+        const idleKey = `${this.def.idleSpriteKey}-anim`;
+        if (this.anims.currentAnim?.key !== idleKey) {
+          this.play(idleKey);
+          if (this.def.displaySize) this.setDisplaySize(this.def.displaySize.w, this.def.displaySize.h);
+        }
+        return;
+      }
+      if (!moving) return;
       // Single looping animation for all directions; flip for leftward movement
       const animKey = `${key}-walk-down`;
-      if (this.anims.currentAnim?.key !== animKey) this.play(animKey);
+      if (this.anims.currentAnim?.key !== animKey) {
+        this.play(animKey);
+        if (this.def.displaySize) this.setDisplaySize(this.def.displaySize.w, this.def.displaySize.h);
+      }
       this.setFlipX(vx < -1);
       return;
     }
 
+    if (!moving) return;
     let suffix: string;
     if (Math.abs(vx) >= Math.abs(vy)) {
       suffix = vx < 0 ? 'left' : 'right';

@@ -18,9 +18,17 @@ export interface EnemyDefinition {
   attackSpriteKey?: string;     // separate atlas key for attack animation
   attackFrameCount?: number;    // total frames in the attack atlas
   attackFrameIndices?: number[]; // subset of frame indices to actually play (default: all)
+  idleSpriteKey?: string;       // separate atlas key for idle (stationary) animation
+  idleFrameCount?: number;      // total frames in the idle atlas
   displaySize?: { w: number; h: number }; // override display size (for high-res sheets)
   projectileKey?: string;       // if set, enemy fires projectiles instead of melee hits
   projectileSpeed?: number;     // projectile travel speed in px/s
+  // Natural enemies spawn with the map instead of in night waves, ignore buildings/house,
+  // and stay near their spawn point until a player wanders into aggro range.
+  isNatural?: boolean;
+  biome?: 'forest' | 'flora';   // where natural spawn points are placed
+  maxAlive?: number;            // world cap on simultaneous alive instances
+  respawnIntervalMs?: number;   // how often a replacement is spawned while under the cap
 }
 
 export const ENEMIES: Record<string, EnemyDefinition> = {
@@ -82,6 +90,22 @@ export const ENEMIES: Record<string, EnemyDefinition> = {
     attackSpriteKey: 'enemy-spider-attack', attackFrameCount: 6,
     displaySize: { w: 28, h: 25 },
   },
+  gnome: {
+    id: 'gnome', label: 'Gnome',
+    spriteKey: 'enemy-gnome',
+    hp: 45, damage: 5, speed: 70,
+    attackRange: 20, attackSpeed: 2, aggroRange: 160,
+    drops: [
+      { itemId: 'coin', quantity: 4, chance: 1.00 },
+      { itemId: 'coin', quantity: 2, chance: 0.50 },
+      { itemId: 'coin', quantity: 1, chance: 0.25 },
+    ],
+    firstNight: 1, lastNight: -1,
+    pathfinding: 'direct',
+    animStyle: 'strip', frameCount: 6,
+    attackSpriteKey: 'enemy-gnome-attack', attackFrameCount: 5,
+    displaySize: { w: 34, h: 24 },
+  },
   yellow_bat: {
     id: 'yellow_bat', label: 'Yellow Bat',
     spriteKey: 'enemy-yellow-bat',
@@ -94,5 +118,22 @@ export const ENEMIES: Record<string, EnemyDefinition> = {
     ],
     firstNight: 4, lastNight: -1,
     pathfinding: 'direct',
+  },
+  bear: {
+    id: 'bear', label: 'Bear',
+    spriteKey: 'enemy-bear',
+    hp: 80, damage: 15, speed: 65,
+    attackRange: 24, attackSpeed: 0.8, aggroRange: 180,
+    drops: [
+      { itemId: 'claw', quantity: 1, chance: 0.5 },
+      { itemId: 'hide', quantity: 1, chance: 0.5 },
+    ],
+    firstNight: 1, lastNight: -1,
+    pathfinding: 'direct',
+    animStyle: 'strip', frameCount: 5, useAtlas: true,
+    idleSpriteKey: 'enemy-bear-idle', idleFrameCount: 3,
+    attackSpriteKey: 'enemy-bear-attack', attackFrameCount: 5,
+    displaySize: { w: 46, h: 36 },
+    isNatural: true, biome: 'forest', maxAlive: 6, respawnIntervalMs: 180000,
   },
 };

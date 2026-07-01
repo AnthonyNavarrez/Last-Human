@@ -19,6 +19,7 @@ export interface PlayerState extends EntityState {
   playerId: string;
   inventory: (ItemStack | null)[];
   hotbar: (ItemStack | null)[];
+  equipment: (ItemStack | null)[]; // [0]=helmet [1]=chestplate [2]=leggings [3]=boots [4]=accessory
   activeSlot: number;
   facing: 'up' | 'down' | 'left' | 'right';
   velocity: Vec2;
@@ -59,12 +60,14 @@ export function createInitialState(localPlayerId: string): GameState {
     hp: C.PLAYER_HP,
     maxHp: C.PLAYER_HP,
     inventory: Array<null>(inventorySize).fill(null),
+    equipment: Array<null>(5).fill(null),
     hotbar: (() => {
       const hb = Array<ItemStack | null>(C.HOTBAR_SIZE).fill(null);
       hb[0] = { itemId: 'wood',       quantity: 50 };
       hb[1] = { itemId: 'iron_ore',   quantity: 50 };
       hb[2] = { itemId: 'stone',      quantity: 50 };
       hb[3] = { itemId: 'copper_ore', quantity: 50 };
+      hb[4] = { itemId: 'blueberry',  quantity: 50 };
       return hb;
     })(),
     activeSlot: 0,

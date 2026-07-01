@@ -9,6 +9,7 @@ import { DayNightTimer } from '../ui/DayNightTimer';
 import { HealthBar } from '../ui/HealthBar';
 import { Tooltip } from '../ui/Tooltip';
 import { InventoryPanel } from '../ui/InventoryPanel';
+import { AnvilMenu } from '../ui/AnvilMenu';
 import { ItemStack } from '../systems/GameState';
 import { ITEMS } from '../data/items';
 
@@ -32,10 +33,14 @@ export class UIScene extends Phaser.Scene {
   private skipNightBtn!: Phaser.GameObjects.Container;
   private tooltip!: Tooltip;
   private inventoryPanel!: InventoryPanel;
+  private anvilMenu!: AnvilMenu;
   private lastPhase = '';
 
+  // Build placement preview (rendered here so it's above GameScene output)
+  private buildPreview: Phaser.GameObjects.Image | null = null;
+
   // Drag state
-  private dragFrom: { type: 'inventory' | 'hotbar'; idx: number } | null = null;
+  private dragFrom: { type: 'inventory' | 'hotbar' | 'equipment'; idx: number } | null = null;
   private dragIcon: Phaser.GameObjects.Image | null = null;
 
   constructor() {
@@ -59,6 +64,7 @@ export class UIScene extends Phaser.Scene {
     this.skipNightBtn   = this.createSkipNightButton();
     this.tooltip        = new Tooltip(this);
     this.inventoryPanel = new InventoryPanel(this);
+    this.anvilMenu      = new AnvilMenu(this);
 
     this.input.on('pointerdown', this.onDragDown, this);
     this.input.on('pointermove', this.onDragMove, this);
@@ -126,7 +132,8 @@ export class UIScene extends Phaser.Scene {
     const hotbarData = this.game.registry.get(R.HOTBAR) as (ItemStack | null)[] | undefined;
     const activeSlot = this.game.registry.get(R.ACTIVE_SLOT) as number | undefined;
     const craftingOpen = this.game.registry.get(R.CRAFTING_OPEN) as boolean | undefined;
-    const inventory = this.game.registry.get(R.INVENTORY) as (ItemStack | null)[] | undefined;
+    const inventory  = this.game.registry.get(R.INVENTORY)  as (ItemStack | null)[] | undefined;
+    const equipment  = this.game.registry.get(R.EQUIPMENT)  as (ItemStack | null)[] | undefined;
 
     const phase      = this.game.registry.get(R.PHASE)       as string | undefined;
     const phaseTimer = this.game.registry.get(R.PHASE_TIMER)  as number | undefined;
@@ -144,6 +151,7 @@ export class UIScene extends Phaser.Scene {
     const minerHasPickaxe = this.game.registry.get(R.MINER_HAS_PICKAXE) as boolean | undefined;
     const minerOutput     = this.game.registry.get(R.MINER_OUTPUT)      as { itemId: string; quantity: number } | null | undefined;
     const sawOpen         = this.game.registry.get(R.SAW_OPEN)          as boolean | undefined;
+    const anvilOpen       = this.game.registry.get(R.ANVIL_OPEN)        as boolean | undefined;
     const sawPower        = this.game.registry.get(R.SAW_POWER)         as number  | undefined;
     const sawHasAxe       = this.game.registry.get(R.SAW_HAS_AXE)       as boolean | undefined;
     const sawOutput       = this.game.registry.get(R.SAW_OUTPUT)        as { itemId: string; quantity: number } | null | undefined;
@@ -166,7 +174,7 @@ export class UIScene extends Phaser.Scene {
 
     if (inventoryOpen) {
       if (!this.inventoryPanel.visible) this.inventoryPanel.setVisible(true);
-      if (inventory) this.inventoryPanel.refresh(inventory);
+      if (inventory) this.inventoryPanel.refresh(inventory, equipment ?? null);
     } else if (this.inventoryPanel.visible) {
       this.inventoryPanel.setVisible(false);
       this.endDrag();
@@ -191,6 +199,12 @@ export class UIScene extends Phaser.Scene {
       this.sawMenu.refresh(sawPower ?? 0, sawHasAxe ?? false, sawOutput ?? null);
     } else if (this.sawMenu.visible) {
       this.sawMenu.hide();
+    }
+
+    if (anvilOpen) {
+      if (!this.anvilMenu.visible) this.anvilMenu.show();
+    } else if (this.anvilMenu.visible) {
+      this.anvilMenu.hide();
     }
 
     if (houseOpen) {
@@ -236,15 +250,26 @@ export class UIScene extends Phaser.Scene {
   private onDragDown(pointer: Phaser.Input.Pointer): void {
     if (!pointer.leftButtonDown()) return;
 
-    const inv = this.game.registry.get(R.INVENTORY) as (ItemStack | null)[] | undefined;
-    const hb  = this.game.registry.get(R.HOTBAR)    as (ItemStack | null)[] | undefined;
+    const inv   = this.game.registry.get(R.INVENTORY)  as (ItemStack | null)[] | undefined;
+    const hb    = this.game.registry.get(R.HOTBAR)     as (ItemStack | null)[] | undefined;
+    const equip = this.game.registry.get(R.EQUIPMENT)  as (ItemStack | null)[] | undefined;
 
-    // Inventory panel takes priority (drawn on top)
-    if (this.inventoryPanel.visible && inv) {
-      const idx = this.inventoryPanel.slotAt(pointer.x, pointer.y);
-      if (idx >= 0 && inv[idx]) {
-        this.startDrag({ type: 'inventory', idx }, inv[idx]!, pointer);
-        return;
+    if (this.inventoryPanel.visible) {
+      // Equipment slots
+      if (equip) {
+        const idx = this.inventoryPanel.equipSlotAt(pointer.x, pointer.y);
+        if (idx >= 0 && equip[idx]) {
+          this.startDrag({ type: 'equipment', idx }, equip[idx]!, pointer);
+          return;
+        }
+      }
+      // Inventory slots
+      if (inv) {
+        const idx = this.inventoryPanel.slotAt(pointer.x, pointer.y);
+        if (idx >= 0 && inv[idx]) {
+          this.startDrag({ type: 'inventory', idx }, inv[idx]!, pointer);
+          return;
+        }
       }
     }
 
@@ -264,16 +289,20 @@ export class UIScene extends Phaser.Scene {
   private onDragUp(pointer: Phaser.Input.Pointer): void {
     if (!this.dragFrom) return;
 
-    let toType: 'inventory' | 'hotbar' | null = null;
+    let toType: 'inventory' | 'hotbar' | 'equipment' | null = null;
     let toIdx = -1;
 
     if (this.inventoryPanel.visible) {
-      const idx = this.inventoryPanel.slotAt(pointer.x, pointer.y);
-      if (idx >= 0) { toType = 'inventory'; toIdx = idx; }
+      const eIdx = this.inventoryPanel.equipSlotAt(pointer.x, pointer.y);
+      if (eIdx >= 0) { toType = 'equipment'; toIdx = eIdx; }
+      else {
+        const iIdx = this.inventoryPanel.slotAt(pointer.x, pointer.y);
+        if (iIdx >= 0) { toType = 'inventory'; toIdx = iIdx; }
+      }
     }
     if (toType === null) {
-      const idx = this.hotbar.slotAt(pointer.x, pointer.y);
-      if (idx >= 0) { toType = 'hotbar'; toIdx = idx; }
+      const hIdx = this.hotbar.slotAt(pointer.x, pointer.y);
+      if (hIdx >= 0) { toType = 'hotbar'; toIdx = hIdx; }
     }
 
     if (toType !== null && !(toType === this.dragFrom.type && toIdx === this.dragFrom.idx)) {
@@ -287,13 +316,14 @@ export class UIScene extends Phaser.Scene {
   }
 
   private startDrag(
-    from: { type: 'inventory' | 'hotbar'; idx: number },
+    from: { type: 'inventory' | 'hotbar' | 'equipment'; idx: number },
     item: ItemStack,
     pointer: Phaser.Input.Pointer,
   ): void {
     this.dragFrom = from;
-    if (from.type === 'inventory') this.inventoryPanel.setDragSource(from.idx);
-    else                           this.hotbar.setDragSource(from.idx);
+    if (from.type === 'inventory')  this.inventoryPanel.setDragSource(from.idx);
+    else if (from.type === 'equipment') this.inventoryPanel.setEquipDragSource(from.idx);
+    else                            this.hotbar.setDragSource(from.idx);
 
     const key = ITEMS[item.itemId]?.spriteKey ?? '';
     if (key) {
@@ -315,6 +345,7 @@ export class UIScene extends Phaser.Scene {
     this.dragIcon?.destroy();
     this.dragIcon = null;
     this.inventoryPanel.setDragSource(null);
+    this.inventoryPanel.setEquipDragSource(null);
     this.hotbar.setDragSource(null);
   }
 
@@ -344,5 +375,21 @@ export class UIScene extends Phaser.Scene {
     });
 
     return container;
+  }
+
+  showBuildPreview(key: string, w: number, h: number, x: number, y: number, valid: boolean): void {
+    if (!this.buildPreview || this.buildPreview.texture.key !== key) {
+      this.buildPreview?.destroy();
+      this.buildPreview = this.add.image(x, y, key)
+        .setScrollFactor(0)
+        .setAlpha(0.5)
+        .setDepth(95);
+    }
+    this.buildPreview.setDisplaySize(w, h).setPosition(x, y).setTint(valid ? 0xffffff : 0xff5555);
+  }
+
+  hideBuildPreview(): void {
+    this.buildPreview?.destroy();
+    this.buildPreview = null;
   }
 }

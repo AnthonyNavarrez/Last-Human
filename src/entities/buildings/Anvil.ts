@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { C } from '../../constants';
+import { makeEIcon } from './AutoMiner';
 
 const ANVIL_HP  = 100;
 const HITBOX_W  = 24;
@@ -11,6 +12,7 @@ export class Anvil extends Phaser.GameObjects.Image {
   private _hp = ANVIL_HP;
   private hpBarBg!:   Phaser.GameObjects.Rectangle;
   private hpBarFill!: Phaser.GameObjects.Rectangle;
+  readonly eIcon: Phaser.GameObjects.Container;
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
     super(scene, x, y, 'building-anvil');
@@ -29,6 +31,8 @@ export class Anvil extends Phaser.GameObjects.Image {
     const wld = (scene.physics.world as any);
     wld.staticTree.remove(body);
     wld.staticTree.insert(body);
+
+    this.eIcon = makeEIcon(scene, x, y - 14);
 
     const barY = y - 22;
     this.hpBarBg   = scene.add.rectangle(x, barY, BAR_W, BAR_H, 0x222222)
@@ -68,6 +72,7 @@ export class Anvil extends Phaser.GameObjects.Image {
   override destroy(fromScene?: boolean): void {
     this.hpBarBg?.destroy();
     this.hpBarFill?.destroy();
+    this.eIcon?.destroy();
     super.destroy(fromScene);
   }
 }

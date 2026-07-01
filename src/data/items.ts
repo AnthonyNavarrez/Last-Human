@@ -15,7 +15,10 @@ export const ITEMS: Record<string, ItemDefinition> = {
   stone:      { id: 'stone',      label: 'Stone',      spriteKey: 'item-rock',       maxStack: 99, type: 'resource' },
   iron_ore:   { id: 'iron_ore',   label: 'Iron Ore',   spriteKey: 'item-iron-ore',   maxStack: 99, type: 'resource' },
   copper_ore: { id: 'copper_ore', label: 'Copper Ore', spriteKey: 'item-copper-ore', maxStack: 99, type: 'resource' },
+  gold:       { id: 'gold',       label: 'Gold',       spriteKey: 'item-gold',       maxStack: 99, type: 'resource' },
   leather:    { id: 'leather',    label: 'Leather',    spriteKey: 'item-leather',    maxStack: 99, type: 'resource' },
+  claw:       { id: 'claw',       label: 'Claw',       spriteKey: 'item-claw',       maxStack: 99, type: 'resource' },
+  hide:       { id: 'hide',       label: 'Hide',       spriteKey: 'item-hide',       maxStack: 99, type: 'resource' },
   coin:       { id: 'coin',       label: 'Coin',       spriteKey: 'item-coin',       maxStack: 99, type: 'resource' },
   battery:    { id: 'battery',    label: 'Battery',    spriteKey: 'item-battery',    maxStack: 99, type: 'resource', description: '200 energy' },
   wooden_arrow: { id: 'wooden_arrow', label: 'Wooden Arrow', spriteKey: 'item-wooden-arrow', maxStack: 99, type: 'ammo', damage: 2 },
@@ -31,6 +34,7 @@ export const ITEMS: Record<string, ItemDefinition> = {
 
   // ── Placeables ─────────────────────────────────────────────────────────────
   acorn:           { id: 'acorn',           label: 'Acorn',          spriteKey: 'item-acorn',             maxStack: 10, type: 'placeable', description: 'Plant a tree stump that grows back in 1 minute' },
+  blueberry_seed:  { id: 'blueberry_seed',  label: 'Blueberry Seed', spriteKey: 'item-blueberry-seed',    maxStack: 10, type: 'placeable', description: 'Plant a blueberry bush' },
   crafting_bench:  { id: 'crafting_bench',  label: 'Crafting Bench', spriteKey: 'building-crafting-bench', maxStack: 1,  type: 'placeable' },
   auto_miner: { id: 'auto_miner', label: 'Drill',      spriteKey: 'autominer-idle', maxStack: 5, type: 'placeable', description: 'Place on stone/ore to automatically harvest' },
   saw:        { id: 'saw',        label: 'Saw',         spriteKey: 'saw-idle',       maxStack: 5, type: 'placeable', description: 'Place on a tree to automatically harvest' },

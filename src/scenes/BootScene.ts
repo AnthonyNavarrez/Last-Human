@@ -7,7 +7,9 @@ export class BootScene extends Phaser.Scene {
 
   preload(): void {
     this.load.tilemapTiledJSON('map', 'assets/tiles/map.json');
-    this.load.image('TilesetFloor', 'assets/AssetPack2/Terrain/Tileset/Tilemap_color1.png');
+    this.load.image('TilesetFloor',  'assets/AssetPack2/Terrain/Tileset/Tilemap_color1.png');
+    this.load.image('TilesetForest', 'assets/AssetPack2/Terrain/Tileset/Tilemap_color4.png');
+    this.load.image('TilesetFlora',  'assets/AssetPack2/Terrain/Tileset/Tilemap_color3.png');
     this.load.spritesheet('pawn-idle',
       'assets/AssetPack2/Units/Black Units/Pawn/Pawn_Idle.png',
       { frameWidth: 192, frameHeight: 192 },
@@ -53,13 +55,21 @@ export class BootScene extends Phaser.Scene {
       { frameWidth: 192, frameHeight: 192 },
     );
     // Resource nodes
-    this.load.spritesheet('node-tree', 'assets/AssetPack2/Terrain/Resources/Wood/Trees/Tree3.png', { frameWidth: 192, frameHeight: 192 });
+    this.load.spritesheet('node-tree',        'assets/AssetPack2/Terrain/Resources/Wood/Trees/Tree3.png', { frameWidth: 192, frameHeight: 192 });
+    this.load.spritesheet('node-tree-forest', 'assets/AssetPack2/Terrain/Resources/Wood/Trees/Tree1.png', { frameWidth: 192, frameHeight: 256 });
+    this.load.spritesheet('node-tree-flora',  'assets/AssetPack2/Terrain/Resources/Wood/Trees/Tree4.png', { frameWidth: 192, frameHeight: 192 });
     this.load.image('node-tree-stump', 'assets/AssetPack2/Terrain/Resources/Wood/Trees/Stump 3.png');
     this.load.image('decor-bush',          'assets/AssetPack2/Terrain/Decorations/Bushes/Bushe4.png');
+    this.load.spritesheet('decor-bush-forest', 'assets/AssetPack2/Terrain/Decorations/Bushes/Bushe3.png',
+      { frameWidth: 128, frameHeight: 128 });
     this.load.image('decor-blueberry-bush-full',  'assets/manual imports/blueberry-bush-full.png');
     this.load.image('decor-blueberry-bush-empty', 'assets/manual imports/blueberry-bush-empty.png');
     this.load.image('item-blueberry',       'assets/manual imports/blueberry-icon.png');
+    this.load.image('item-blueberry-seed',  'assets/manual imports/blueberry-seed.png');
     this.load.image('node-rock',       'assets/sprites/rock.png');
+    this.load.image('node-gold',        'assets/AssetPack2/Terrain/Resources/Gold/Gold Stones/Gold Stone 5.png');
+    this.load.image('node-gold-broken', 'assets/AssetPack2/Terrain/Resources/Gold/Gold Stones/Gold Stone 2.png');
+    this.load.image('item-gold',        'assets/manual imports/gold.png');
     this.load.image('node-iron-ore',   'assets/sprites/iron-ore-node.png');
     this.load.image('node-copper-ore', 'assets/sprites/copper-ore-node.png');
     // Auto miner building sprites
@@ -143,6 +153,15 @@ export class BootScene extends Phaser.Scene {
     this.load.spritesheet('enemy-yellow-bat',
       'assets/Asset Pack/Actor/Monster/YellowsBat/SpriteSheet.png',
       { frameWidth: 16, frameHeight: 16 });
+    this.load.spritesheet('enemy-gnome', 'assets/manual imports/gnome-run.png',
+      { frameWidth: 743, frameHeight: 500 });
+    this.load.image('enemy-gnome-attack', 'assets/manual imports/gnome-attack.png');
+    this.load.image('enemy-bear', 'assets/manual imports/bear-run.png');
+    this.load.image('enemy-bear-idle', 'assets/manual imports/bear-idle.png');
+    this.load.image('enemy-bear-attack', 'assets/manual imports/bear-attack.png');
+    // Bear drop icons
+    this.load.image('item-claw', 'assets/manual imports/claw.png');
+    this.load.image('item-hide', 'assets/manual imports/hide.png');
   }
 
   create(): void {
@@ -194,7 +213,56 @@ export class BootScene extends Phaser.Scene {
       ];
       frames.forEach(([x, w, h], i) => tex.add(i, 0, x, 0, w, h));
     }
+    {
+      // gnome-attack.png: 5 frames with uneven widths — register by gap midpoints
+      const tex = this.textures.get('enemy-gnome-attack');
+      const frames: [number, number, number][] = [
+        [  0, 137, 112],
+        [137, 160, 112],
+        [297, 180, 112],
+        [477, 163, 112],
+        [640, 127, 112],
+      ];
+      frames.forEach(([x, w, h], i) => tex.add(i, 0, x, 0, w, h));
+    }
+    {
+      // Bear run sheet has non-uniform frame gaps; register frames manually
+      const tex = this.textures.get('enemy-bear');
+      const frames: [number, number, number][] = [
+        [ 221, 1155, 1015],
+        [1701, 1064, 1015],
+        [3051, 1181, 1015],
+        [4518, 1155, 1015],
+        [5946, 1090, 1015],
+      ];
+      frames.forEach(([x, w, h], i) => tex.add(i, 0, x, 0, w, h));
+    }
+    {
+      // Bear idle sheet has non-uniform frame gaps and heavy vertical padding;
+      // crop tight to the bear's content box so it renders at the same scale as the run sheet.
+      const tex = this.textures.get('enemy-bear-idle');
+      const frames: [number, number, number, number][] = [
+        [ 432, 511, 1504, 1197],
+        [2800, 511, 1504, 1197],
+        [5136, 511, 1504, 1197],
+      ];
+      frames.forEach(([x, y, w, h], i) => tex.add(i, 0, x, y, w, h));
+    }
+    {
+      // Bear attack sheet has non-uniform frame gaps; register frames manually.
+      // Frame 4 (the claw swipe) has a body/VFX gap smaller than the real inter-frame
+      // gaps, so it's kept as one wide frame rather than split in two.
+      const tex = this.textures.get('enemy-bear-attack');
+      const frames: [number, number, number, number][] = [
+        [ 252, 754,  674, 755],
+        [1502, 754,  800, 755],
+        [2842, 754,  746, 755],
+        [3876, 754, 1124, 755],
+        [5791, 754,  935, 755],
+      ];
+      frames.forEach(([x, y, w, h], i) => tex.add(i, 0, x, y, w, h));
+    }
 
-    this.scene.start('menu');
+this.scene.start('menu');
   }
 }

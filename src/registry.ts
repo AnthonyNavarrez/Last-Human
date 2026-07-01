@@ -31,4 +31,6 @@ export enum R {
   SKILL_SPEED        = 'skill_speed',
   SKILL_STRENGTH     = 'skill_strength',
   SKILL_DEFENCE      = 'skill_defence',
+  EQUIPMENT          = 'equipment',
+  ANVIL_OPEN         = 'anvil_open',
 }

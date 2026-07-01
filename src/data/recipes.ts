@@ -60,6 +60,12 @@ export const RECIPES: RecipeDefinition[] = [
   },
   // ── Misc ───────────────────────────────────────────────────────────────────
   {
+    id: 'blueberry_seed', label: 'Blueberry Seed', stationId: 'crafting_bench', tab: 'misc',
+    inputs:  [{ itemId: 'blueberry', quantity: 5 }],
+    outputs: [{ itemId: 'blueberry_seed', quantity: 1 }],
+    craftTimeMs: 1000,
+  },
+  {
     id: 'battery', label: 'Battery', stationId: 'crafting_bench', tab: 'misc',
     inputs:  [{ itemId: 'iron_ore', quantity: 5 }, { itemId: 'copper_ore', quantity: 5 }],
     outputs: [{ itemId: 'battery', quantity: 1 }],

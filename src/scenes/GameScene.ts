@@ -8,6 +8,9 @@ import { DroppedItem } from '../entities/DroppedItem';
 import { addItem, removeItem } from '../systems/InventorySystem';
 import { CraftingBench } from '../entities/buildings/CraftingBench';
 import { House } from '../entities/buildings/House';
+import { net } from '../systems/NetworkClient';
+import { RemotePlayer } from '../entities/RemotePlayer';
+import type { GameSnapshot, DroppedItemSnapshot } from '../../shared/packets';
 import { AutoMiner, makeEIcon } from '../entities/buildings/AutoMiner';
 import { AutoSaw } from '../entities/buildings/AutoSaw';
 import { Canon, CANON_DAMAGE, CANON_BALL_SPEED } from '../entities/buildings/Canon';
@@ -15,8 +18,9 @@ import { Turret, TURRET_DAMAGE, TURRET_ARROW_SPEED } from '../entities/buildings
 import { Anvil } from '../entities/buildings/Anvil';
 import { doCraft } from '../systems/CraftingSystem';
 import { RECIPES } from '../data/recipes';
+import { UIScene } from './UIScene';
 import { BaseEnemy } from '../entities/enemies/BaseEnemy';
-import { ENEMIES } from '../data/enemies';
+import { ENEMIES, EnemyDefinition } from '../data/enemies';
 import { WAVES, WaveDefinition } from '../data/waves';
 import { ITEMS } from '../data/items';
 import { audioManager } from '../systems/AudioManager';
@@ -57,6 +61,7 @@ export class GameScene extends Phaser.Scene {
   private craftingBench!: CraftingBench;
   private groundLayer!: Phaser.Tilemaps.TilemapLayer;
   private droppedItemMap = new Map<string, DroppedItem>();
+  private goldCursorActive = false;
   private house!: House;
   private houseHpBarFill!: Phaser.GameObjects.Rectangle;
   private houseHpBarFrames: Phaser.GameObjects.Image[] = [];
@@ -79,20 +84,17 @@ export class GameScene extends Phaser.Scene {
   private sawOpen = false;
   private canons: Canon[] = [];
   private activeCanonballs: { sprite: Phaser.Physics.Arcade.Image; damage: number }[] = [];
-  private canonPreview: Phaser.GameObjects.Sprite | null = null;
   private turrets: Turret[] = [];
   private activeTurretArrows: { sprite: Phaser.Physics.Arcade.Image; damage: number }[] = [];
-  private turretPreview: Phaser.GameObjects.Image | null = null;
   private turretGroup!: Phaser.Physics.Arcade.StaticGroup;
-  private acornPreview: Phaser.GameObjects.Image | null = null;
-  private craftingBenchPreview: Phaser.GameObjects.Image | null = null;
   private hammerHoveredObj: Phaser.GameObjects.GameObject | null = null;
   private hammerLTarget: Phaser.GameObjects.GameObject | null = null;
   private hammerLCount = 0;
   private hammerRTarget: Phaser.GameObjects.GameObject | null = null;
   private hammerRCount = 0;
   private anvils: Anvil[] = [];
-  private anvilPreview: Phaser.GameObjects.Image | null = null;
+  private activeAnvil: Anvil | null = null;
+  private anvilOpen = false;
   private anvilGroup!: Phaser.Physics.Arcade.StaticGroup;
   private activeEnemyProjectiles: { sprite: Phaser.Physics.Arcade.Image; damage: number }[] = [];
   private benchEIcon!: Phaser.GameObjects.Container;
@@ -102,8 +104,34 @@ export class GameScene extends Phaser.Scene {
   private waveKilled = 0;
   private gameOver = false;
 
+  // ── Multiplayer ────────────────────────────────────────────────────────────
+  private resourceNodeMap  = new Map<string, ResourceNode>(); // nodeId → node
+  private placedBuildingIds = new Set<string>();              // ids already spawned locally
+  private multiplayer = false;
+  private remotePlayerMap = new Map<string, RemotePlayer>();
+  private serverDropMap = new Map<string, DroppedItem>();     // server-tracked drops (multiplayer)
+  private locallyPickedDropIds = new Set<string>();           // picked up locally, awaiting server ack
+  private inputSendAccumMs = 0;
+  private onSnapshot!: (packet: { type: 'state-snapshot'; snapshot: GameSnapshot }) => void;
+  private onPlayerLeftGame!: (packet: Extract<import('../../shared/packets').ServerPacket, { type: 'player-left' }>) => void;
+
+  private worldSeed = 0;
+  // Seeded RNG (mulberry32) — replaced each create() call
+  private rng: () => number = Math.random;
+
   constructor() {
     super({ key: 'game' });
+  }
+
+  init(data?: { seed?: number }): void {
+    this.worldSeed = data?.seed ?? Math.floor(Math.random() * 0xFFFFFFFF);
+    let s = this.worldSeed;
+    this.rng = () => {
+      s = (s + 0x6D2B79F5) >>> 0;
+      let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 0x100000000;
+    };
   }
 
   create(): void {
@@ -204,11 +232,12 @@ export class GameScene extends Phaser.Scene {
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (pointer.rightButtonDown()) {
-        if (this.craftingOpen || this.minerOpen || this.sawOpen || this.inventoryOpen || this.houseOpen) return;
+        if (this.craftingOpen || this.minerOpen || this.sawOpen || this.anvilOpen || this.inventoryOpen || this.houseOpen) return;
         const ps = this.gameState.players[this.localPlayerId];
         const activeItem = ps.hotbar[ps.activeSlot];
         if (activeItem?.itemId === 'repair_hammer') {
-          this.doHammerRight(pointer.worldX, pointer.worldY);
+          const rwp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+          this.doHammerRight(rwp.x, rwp.y);
           return;
         }
         if (activeItem?.itemId === 'blueberry') {
@@ -223,27 +252,30 @@ export class GameScene extends Phaser.Scene {
         }
         return;
       }
-      if (!pointer.leftButtonDown() || this.craftingOpen || this.minerOpen || this.sawOpen || this.inventoryOpen || this.houseOpen) return;
+      if (!pointer.leftButtonDown() || this.craftingOpen || this.minerOpen || this.sawOpen || this.anvilOpen || this.inventoryOpen || this.houseOpen) return;
       const ps = this.gameState.players[this.localPlayerId];
       const activeItem = ps.hotbar[ps.activeSlot];
+      const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       if (activeItem?.itemId === 'auto_miner') {
-        this.placeAutoMiner(pointer.worldX, pointer.worldY);
+        this.placeAutoMiner(wp.x, wp.y);
       } else if (activeItem?.itemId === 'saw') {
-        this.placeAutoSaw(pointer.worldX, pointer.worldY);
+        this.placeAutoSaw(wp.x, wp.y);
       } else if (activeItem?.itemId === 'canon') {
-        this.placeCanon(pointer.worldX, pointer.worldY);
+        this.placeCanon(wp.x, wp.y);
       } else if (activeItem?.itemId === 'turret') {
-        this.placeTurret(pointer.worldX, pointer.worldY);
+        this.placeTurret(wp.x, wp.y);
       } else if (activeItem?.itemId === 'crafting_bench') {
-        this.placeCraftingBench(pointer.worldX, pointer.worldY);
+        this.placeCraftingBench(wp.x, wp.y);
       } else if (activeItem?.itemId === 'acorn') {
-        this.placeAcorn(pointer.worldX, pointer.worldY);
+        this.placeAcorn(wp.x, wp.y);
+      } else if (activeItem?.itemId === 'blueberry_seed') {
+        this.placeBlueberrySeed(wp.x, wp.y);
       } else if (activeItem?.itemId === 'anvil') {
-        this.placeAnvil(pointer.worldX, pointer.worldY);
+        this.placeAnvil(wp.x, wp.y);
       } else if (activeItem?.itemId === 'repair_hammer') {
-        this.doHammerLeft(pointer.worldX, pointer.worldY);
+        this.doHammerLeft(wp.x, wp.y);
       } else if (activeItem?.itemId === 'bow') {
-        this.doRangedAttack(pointer.worldX, pointer.worldY);
+        this.doRangedAttack(wp.x, wp.y);
       } else {
         this.doMeleeAttack();
       }
@@ -260,6 +292,12 @@ export class GameScene extends Phaser.Scene {
 
     this.game.events.on('close-crafting', () => {
       this.craftingOpen = false;
+      this.syncRegistry();
+    }, this);
+
+    this.game.events.on('close-anvil', () => {
+      this.anvilOpen   = false;
+      this.activeAnvil = null;
       this.syncRegistry();
     }, this);
 
@@ -299,12 +337,14 @@ export class GameScene extends Phaser.Scene {
     this.game.events.on('item-move', ({
       from, to,
     }: {
-      from: { type: 'inventory' | 'hotbar'; idx: number };
-      to:   { type: 'inventory' | 'hotbar'; idx: number };
+      from: { type: 'inventory' | 'hotbar' | 'equipment'; idx: number };
+      to:   { type: 'inventory' | 'hotbar' | 'equipment'; idx: number };
     }) => {
-      const ps  = this.gameState.players[this.localPlayerId];
-      const src = from.type === 'inventory' ? ps.inventory : ps.hotbar;
-      const dst = to.type   === 'inventory' ? ps.inventory : ps.hotbar;
+      const ps = this.gameState.players[this.localPlayerId];
+      const getArr = (t: string) =>
+        t === 'inventory' ? ps.inventory : t === 'hotbar' ? ps.hotbar : ps.equipment;
+      const src = getArr(from.type);
+      const dst = getArr(to.type);
       if (from.idx < 0 || from.idx >= src.length) return;
       if (to.idx   < 0 || to.idx   >= dst.length) return;
       [src[from.idx], dst[to.idx]] = [dst[to.idx], src[from.idx]];
@@ -393,7 +433,7 @@ export class GameScene extends Phaser.Scene {
 
     this.game.events.on('night-start', (nightNumber: number) => {
       audioManager.sfxNightStart();
-      this.startWave(nightNumber);
+      if (!this.multiplayer) this.startWave(nightNumber);
     }, this);
 
     this.game.events.on('skip-to-night', () => {
@@ -402,13 +442,65 @@ export class GameScene extends Phaser.Scene {
       this.gameState.phaseTimer = C.NIGHT_DURATION_SEC;
       this.gameState.nightNumber += 1;
       this.game.events.emit('night-start', this.gameState.nightNumber);
+      this.syncRegistry();
     }, this);
 
     this.input.on('wheel', (_ptr: unknown, _gos: unknown, _dx: number, dy: number) => {
-      if (this.craftingOpen || this.houseOpen) return;
+      if (this.craftingOpen || this.anvilOpen || this.houseOpen) return;
       const ps = this.gameState.players[this.localPlayerId];
       ps.activeSlot = (ps.activeSlot + (dy > 0 ? 1 : -1) + C.HOTBAR_SIZE) % C.HOTBAR_SIZE;
     });
+
+    // ── Multiplayer setup ────────────────────────────────────────────────────
+    if (net.isConnected) {
+      this.multiplayer = true;
+      const oldId = this.localPlayerId;
+      this.localPlayerId = net.playerId ?? oldId;
+
+      // Re-key the player state so syncRegistry can find it by server ID
+      if (this.localPlayerId !== oldId) {
+        const ps = this.gameState.players[oldId];
+        if (ps) {
+          ps.id = this.localPlayerId;
+          ps.playerId = this.localPlayerId;
+          this.gameState.players[this.localPlayerId] = ps;
+          delete this.gameState.players[oldId];
+        }
+      }
+
+      RemotePlayer.registerAnims(this.anims);
+
+      this.onSnapshot = (packet) => this.applySnapshot(packet.snapshot);
+      net.on('state-snapshot', this.onSnapshot);
+
+      // Immediately remove a remote player sprite when they disconnect
+      this.onPlayerLeftGame = (packet) => {
+        const rp = this.remotePlayerMap.get(packet.playerId);
+        if (rp) { rp.destroy(); this.remotePlayerMap.delete(packet.playerId); }
+      };
+      net.on('player-left', this.onPlayerLeftGame);
+
+      this.events.on('shutdown', () => {
+        net.off('state-snapshot', this.onSnapshot);
+        net.off('player-left',    this.onPlayerLeftGame);
+        this.remotePlayerMap.forEach(rp => rp.destroy());
+        this.remotePlayerMap.clear();
+      });
+    }
+
+    // Natural enemies (e.g. bear) spawn with the map and top themselves back up over
+    // time. Solo-only for now — multiplayer enemies are authoritative on the server.
+    if (!this.multiplayer) {
+      this.spawnNaturalEnemies();
+      for (const def of Object.values(ENEMIES)) {
+        if (!def.isNatural) continue;
+        this.time.addEvent({
+          delay: def.respawnIntervalMs ?? 180000,
+          loop: true,
+          callback: () => this.spawnNaturalEnemy(def.id),
+        });
+      }
+    }
 
     this.syncRegistry();
   }
@@ -447,9 +539,9 @@ export class GameScene extends Phaser.Scene {
       hpRatio > 0.5 ? 0x22cc44 : hpRatio > 0.25 ? 0xf0a500 : 0xe63946,
     );
 
-    // Day/Night timer
-    this.gameState.phaseTimer -= delta / 1000;
-    if (this.gameState.phaseTimer <= 0) {
+    // Day/Night timer — only run locally in solo; multiplayer uses server snapshots
+    if (!this.multiplayer) this.gameState.phaseTimer -= delta / 1000;
+    if (!this.multiplayer && this.gameState.phaseTimer <= 0) {
       if (this.gameState.phase === 'day') {
         this.gameState.phase = 'night';
         this.gameState.phaseTimer = C.NIGHT_DURATION_SEC;
@@ -474,6 +566,9 @@ export class GameScene extends Phaser.Scene {
       } else if (this.minerOpen) {
         this.minerOpen = false;
         this.activeMiner = null;
+      } else if (this.anvilOpen) {
+        this.anvilOpen   = false;
+        this.activeAnvil = null;
       } else if (this.craftingOpen) {
         this.craftingOpen = false;
       } else {
@@ -487,17 +582,23 @@ export class GameScene extends Phaser.Scene {
             this.activeMiner = nearMiner;
             this.minerOpen = true;
           } else {
-            const benchDist = this.craftingBench.active
-              ? Phaser.Math.Distance.Between(this.player.x, this.player.y, this.craftingBench.x, this.craftingBench.y)
-              : Infinity;
-            if (benchDist <= C.INTERACT_RANGE) {
-              this.craftingOpen = true;
+            const nearAnvil = this.findNearbyAnvil();
+            if (nearAnvil) {
+              this.activeAnvil = nearAnvil;
+              this.anvilOpen   = true;
             } else {
-              const houseDist = Phaser.Math.Distance.Between(
-                this.player.x, this.player.y,
-                this.house.x, this.house.y,
-              );
-              if (houseDist <= C.INTERACT_RANGE) this.houseOpen = true;
+              const benchDist = this.craftingBench.active
+                ? Phaser.Math.Distance.Between(this.player.x, this.player.y, this.craftingBench.x, this.craftingBench.y)
+                : Infinity;
+              if (benchDist <= C.INTERACT_RANGE) {
+                this.craftingOpen = true;
+              } else {
+                const houseDist = Phaser.Math.Distance.Between(
+                  this.player.x, this.player.y,
+                  this.house.x, this.house.y,
+                );
+                if (houseDist <= C.INTERACT_RANGE) this.houseOpen = true;
+              }
             }
           }
         }
@@ -511,7 +612,7 @@ export class GameScene extends Phaser.Scene {
       this.syncRegistry();
     }
 
-    if (this.craftingOpen || this.minerOpen || this.sawOpen || this.houseOpen) {
+    if (this.craftingOpen || this.minerOpen || this.sawOpen || this.anvilOpen || this.houseOpen) {
       // Freeze player while any menu is open
       this.player.setVelocity(0, 0);
     } else {
@@ -547,23 +648,48 @@ export class GameScene extends Phaser.Scene {
       this.pickupItems();
     }
 
+    // Send inputs to server in multiplayer mode (throttled to ~20/sec)
+    if (this.multiplayer) {
+      this.inputSendAccumMs += delta;
+      if (this.inputSendAccumMs >= 50) {
+        this.inputSendAccumMs = 0;
+        const ps = this.gameState.players[this.localPlayerId];
+        net.send({
+          type: 'input',
+          keys: {
+            up:    this.keys.up.isDown,
+            down:  this.keys.down.isDown,
+            left:  this.keys.left.isDown,
+            right: this.keys.right.isDown,
+          },
+          pointerWorld: { x: this.input.activePointer.worldX, y: this.input.activePointer.worldY },
+          facing: ps.facing,
+          action: null,
+          position: { x: this.player.x, y: this.player.y },
+          attackAnim: null,
+        });
+      }
+    }
+
     this.updateEIcons();
-    this.updateCanonPreview();
-    this.updateTurretPreview();
-    this.updateAnvilPreview();
-    this.updateAcornPreview();
-    this.updateCraftingBenchPreview();
+    this.updateBuildPreview();
     this.updateHammerHighlight();
+    this.updateGoldCursor();
     this.tickMiners(delta);
     this.tickSaws(delta);
     this.tickCanons(delta);
     this.tickTurrets(delta);
     this.tickAnvils();
-    this.tickEnemies(delta);
+    if (this.multiplayer) {
+      this.activeEnemies.forEach(e => e.tickMultiplayer(delta));
+    } else {
+      this.tickEnemies(delta);
+    }
     this.tickArrows();
     this.tickCanonballs();
     this.tickTurretArrows();
     this.tickEnemyProjectiles();
+    if (this.multiplayer) this.remotePlayerMap.forEach(rp => rp.tick(delta));
     this.syncRegistry();
   }
 
@@ -583,17 +709,19 @@ export class GameScene extends Phaser.Scene {
 
     for (const id of toCollect) {
       const item = this.droppedItemMap.get(id)!;
-      if (item.itemId === 'coin') {
-        ps.coins += item.quantity;
+      const picked = item.itemId === 'coin'
+        ? (ps.coins += item.quantity, true)
+        : addItem(ps.hotbar, ps.inventory, item.itemId, item.quantity);
+      if (picked) {
         delete this.gameState.droppedItems[id];
         item.destroy();
         this.droppedItemMap.delete(id);
         this.dropImmune.delete(id);
-      } else if (addItem(ps.hotbar, ps.inventory, item.itemId, item.quantity)) {
-        delete this.gameState.droppedItems[id];
-        item.destroy();
-        this.droppedItemMap.delete(id);
-        this.dropImmune.delete(id);
+        if (this.multiplayer && this.serverDropMap.has(id)) {
+          this.serverDropMap.delete(id);
+          this.locallyPickedDropIds.add(id);
+          this.sendAction({ kind: 'pickup-drop', dropId: id });
+        }
       }
     }
   }
@@ -603,11 +731,22 @@ export class GameScene extends Phaser.Scene {
     const map = this.make.tilemap({ key: 'map' });
     const tileset = map.addTilesetImage('TilesetFloor', 'TilesetFloor');
     if (!tileset) { console.error('GameScene: failed to add TilesetFloor tileset'); return; }
+    const forestTileset = map.addTilesetImage('TilesetForest', 'TilesetForest');
+    const floraTileset  = map.addTilesetImage('TilesetFlora',  'TilesetFlora');
 
     const groundLayer = map.createLayer('ground', tileset, 0, 0);
     if (!groundLayer) { console.error('GameScene: failed to create ground layer'); return; }
     groundLayer.setDepth(C.DEPTH_GROUND);
     this.groundLayer = groundLayer;
+
+    if (forestTileset) {
+      const forestLayer = map.createLayer('forest-ground', [tileset, forestTileset], 0, 0);
+      if (forestLayer) forestLayer.setDepth(C.DEPTH_GROUND + 1);
+    }
+    if (floraTileset) {
+      const floraLayer = map.createLayer('flora-ground', [tileset, floraTileset], 0, 0);
+      if (floraLayer) floraLayer.setDepth(C.DEPTH_GROUND + 1);
+    }
 
     const mapW = map.widthInPixels;
     const mapH = map.heightInPixels;
@@ -623,6 +762,7 @@ export class GameScene extends Phaser.Scene {
     const CELL = 80;
     const CLEAR_SQ = 220 * 220;
     const mapSize = C.MAP_WIDTH_TILES * C.TILE_SIZE;
+    let nodeIdx = 0;
 
     const occupiedPositions: { x: number; y: number }[] = [];
 
@@ -632,18 +772,24 @@ export class GameScene extends Phaser.Scene {
         const dy = cy - C.PLAYER_SPAWN.y;
         if (dx * dx + dy * dy < CLEAR_SQ) continue;
 
-        const h = Math.random() * 100;
+        const h = this.rng() * 100;
         let type: ResourceType | null = null;
-        if      (h < 8)  type = 'tree';
+        const inForest = cy < C.FOREST_BIOME_ROWS * C.TILE_SIZE;
+        const inFlora  = cy > (C.MAP_HEIGHT_TILES - C.FLORA_BIOME_ROWS) * C.TILE_SIZE;
+        if      (h < 8)  type = inForest ? 'forest_tree' : inFlora ? 'flora_tree' : 'tree';
         else if (h < 14) type = 'rock';
         else if (h < 16) type = 'iron_ore_node';
         else if (h < 17) type = 'copper_ore_node';
+        else if (h < 22 && inFlora) type = 'gold_node';
 
         if (type) {
-          const jx = (Math.random() - 0.5) * (CELL - C.TILE_SIZE * 2);
-          const jy = (Math.random() - 0.5) * (CELL - C.TILE_SIZE * 2);
+          const jx = (this.rng() - 0.5) * (CELL - C.TILE_SIZE * 2);
+          const jy = (this.rng() - 0.5) * (CELL - C.TILE_SIZE * 2);
           const nx = cx + jx, ny = cy + jy;
           const node = new ResourceNode(this, nx, ny, type);
+          const nodeId = `n${nodeIdx++}`;
+          node.setName(nodeId);
+          this.resourceNodeMap.set(nodeId, node);
           this.resourceGroup.add(node, true);
           occupiedPositions.push({ x: nx, y: ny });
         }
@@ -659,25 +805,51 @@ export class GameScene extends Phaser.Scene {
         const dx = cx - C.PLAYER_SPAWN.x;
         const dy = cy - C.PLAYER_SPAWN.y;
         if (dx * dx + dy * dy < BUSH_CLEAR_SQ) continue;
-        if (Math.random() > 0.25) continue;
-        const jx = (Math.random() - 0.5) * (BUSH_CELL - C.TILE_SIZE);
-        const jy = (Math.random() - 0.5) * (BUSH_CELL - C.TILE_SIZE);
+        if (this.rng() > 0.25) continue;
+        const jx = (this.rng() - 0.5) * (BUSH_CELL - C.TILE_SIZE);
+        const jy = (this.rng() - 0.5) * (BUSH_CELL - C.TILE_SIZE);
         const bx = cx + jx, by = cy + jy;
         const tooClose = occupiedPositions.some(p => {
           const ex = bx - p.x, ey = by - p.y;
           return ex * ex + ey * ey < BUSH_EXCL_SQ;
         });
         if (tooClose) continue;
-        const type = Math.random() < 0.3 ? 'blueberry_bush' : 'bush';
+        const inForestBush = cy < C.FOREST_BIOME_ROWS * C.TILE_SIZE;
+        const type = this.rng() < 0.3 ? 'blueberry_bush' : inForestBush ? 'forest_bush' : 'bush';
         const bush = new ResourceNode(this, bx, by, type);
+        const bushId = `n${nodeIdx++}`;
+        bush.setName(bushId);
+        this.resourceNodeMap.set(bushId, bush);
         this.resourceGroup.add(bush, false);
       }
     }
   }
 
+  private updateGoldCursor(): void {
+    const ps = this.gameState.players[this.localPlayerId];
+    const hasPickaxe = ps?.hotbar[ps.activeSlot]?.itemId === 'stone_pickaxe';
+
+    let showBlocked = false;
+    if (!hasPickaxe) {
+      const wp = this.cameras.main.getWorldPoint(this.input.activePointer.x, this.input.activePointer.y);
+      for (const child of this.resourceGroup.getChildren()) {
+        const node = child as ResourceNode;
+        if (node.resourceType !== 'gold_node') continue;
+        const body = node.body as Phaser.Physics.Arcade.StaticBody;
+        if (Math.abs(wp.x - node.x) <= body.halfWidth && Math.abs(wp.y - node.y) <= body.halfHeight) { showBlocked = true; break; }
+      }
+    }
+
+    if (showBlocked === this.goldCursorActive) return;
+    this.goldCursorActive = showBlocked;
+    this.game.canvas.style.cursor = showBlocked
+      ? "url('/assets/AssetPack2/UI%20Elements/UI%20Elements/Cursors/Cursor_03.png') 32 32, not-allowed"
+      : '';
+  }
+
   /** Show/hide E-key hints above interactables based on player proximity. */
   private updateEIcons(): void {
-    const menuOpen = this.craftingOpen || this.minerOpen || this.sawOpen || this.inventoryOpen || this.houseOpen;
+    const menuOpen = this.craftingOpen || this.minerOpen || this.sawOpen || this.anvilOpen || this.inventoryOpen || this.houseOpen;
     const px = this.player.x, py = this.player.y;
 
     const benchDist = this.craftingBench.active
@@ -697,6 +869,11 @@ export class GameScene extends Phaser.Scene {
       const dist = Phaser.Math.Distance.Between(px, py, saw.x, saw.y);
       saw.eIcon.setVisible(!menuOpen && dist <= C.INTERACT_RANGE);
     }
+
+    for (const anvil of this.anvils) {
+      const dist = Phaser.Math.Distance.Between(px, py, anvil.x, anvil.y);
+      anvil.eIcon.setVisible(!menuOpen && dist <= C.INTERACT_RANGE);
+    }
   }
 
   /**
@@ -713,6 +890,7 @@ export class GameScene extends Phaser.Scene {
     const miner = new AutoMiner(this, node);
     this.buildingGroup.add(miner, false);
     this.miners.push(miner);
+    this.notifyBuildingPlaced('auto-miner', node.x, node.y, node.name || undefined);
     this.sound.play('sfx-place-build', { volume: 0.7 });
     this.syncRegistry();
   }
@@ -786,6 +964,7 @@ export class GameScene extends Phaser.Scene {
     const saw = new AutoSaw(this, node);
     this.buildingGroup.add(saw, false);
     this.saws.push(saw);
+    this.notifyBuildingPlaced('auto-saw', node.x, node.y, node.name || undefined);
     this.sound.play('sfx-place-build', { volume: 0.7 });
     this.syncRegistry();
   }
@@ -795,7 +974,7 @@ export class GameScene extends Phaser.Scene {
     let bestDist: number = C.INTERACT_RANGE;
     for (const child of this.resourceGroup.getChildren()) {
       const node = child as ResourceNode;
-      if (node.resourceType !== 'tree') continue;
+      if (node.resourceType !== 'tree' && node.resourceType !== 'forest_tree' && node.resourceType !== 'flora_tree') continue;
       const dist = Phaser.Math.Distance.Between(wx, wy, node.x, node.y);
       if (dist < bestDist) { bestDist = dist; best = node; }
     }
@@ -809,29 +988,39 @@ export class GameScene extends Phaser.Scene {
     const anvil = new Anvil(this, wx, wy);
     this.anvils.push(anvil);
     this.anvilGroup.add(anvil, false);
+    this.notifyBuildingPlaced('anvil', wx, wy);
     this.sound.play('sfx-place-build', { volume: 0.7 });
     this.syncRegistry();
   }
 
-  private updateAnvilPreview(): void {
-    const ps = this.gameState.players[this.localPlayerId];
-    const activeItem = ps.hotbar[ps.activeSlot];
-    const wantPreview = activeItem?.itemId === 'anvil' && !this.craftingOpen && !this.minerOpen && !this.sawOpen && !this.inventoryOpen && !this.houseOpen;
+  private get ui(): UIScene { return this.scene.get('ui') as UIScene; }
 
-    if (wantPreview) {
-      const ptr = this.input.activePointer;
-      const wx = ptr.worldX, wy = ptr.worldY;
-      if (!this.anvilPreview) {
-        this.anvilPreview = this.add.image(wx, wy, 'building-anvil')
-          .setDisplaySize(30, 18)
-          .setAlpha(0.5)
-          .setDepth(C.DEPTH_PLAYER);
-      }
-      const valid = this.canPlaceBuilding(wx, wy);
-      this.anvilPreview.setPosition(wx, wy).setTint(valid ? 0xffffff : 0xff5555);
-    } else if (this.anvilPreview) {
-      this.anvilPreview.destroy();
-      this.anvilPreview = null;
+  private updateBuildPreview(): void {
+    const ps = this.gameState.players[this.localPlayerId];
+    if (!ps) return;
+    const activeItem = ps.hotbar[ps.activeSlot];
+    const menuOpen = this.craftingOpen || this.minerOpen || this.sawOpen || this.anvilOpen || this.inventoryOpen || this.houseOpen;
+    const ptr = this.input.activePointer;
+    const z = C.CAMERA_ZOOM;
+    // Always derive world coords from GameScene's own camera so UIScene's
+    // zoom-1 camera doesn't overwrite pointer.worldX/worldY before we read it.
+    const wp = this.cameras.main.getWorldPoint(ptr.x, ptr.y);
+
+    if (!menuOpen && activeItem?.itemId === 'acorn') {
+      this.ui.showBuildPreview('node-tree-stump', 90 * z, 120 * z, ptr.x, ptr.y, this.canPlaceAcorn(wp.x, wp.y));
+    } else if (!menuOpen && activeItem?.itemId === 'blueberry_seed') {
+      this.ui.showBuildPreview('decor-blueberry-bush-empty', 24 * z, 16 * z, ptr.x, ptr.y, this.canPlaceBuilding(wp.x, wp.y));
+    } else if (!menuOpen && activeItem?.itemId === 'turret') {
+      this.ui.showBuildPreview('turret', 40 * z, 50 * z, ptr.x, ptr.y, this.canPlaceBuilding(wp.x, wp.y));
+    } else if (!menuOpen && activeItem?.itemId === 'canon') {
+      this.ui.showBuildPreview('canon1-f2', 36 * z, 44 * z, ptr.x, ptr.y, this.canPlaceCanon(wp.x, wp.y));
+    } else if (!menuOpen && activeItem?.itemId === 'anvil') {
+      this.ui.showBuildPreview('building-anvil', 30 * z, 18 * z, ptr.x, ptr.y, this.canPlaceBuilding(wp.x, wp.y));
+    } else if (!menuOpen && activeItem?.itemId === 'crafting_bench') {
+      const sz = C.TILE_SIZE * 2 * z;
+      this.ui.showBuildPreview('building-crafting-bench', sz, sz, ptr.x, ptr.y, this.canPlaceBuilding(wp.x, wp.y));
+    } else {
+      this.ui.hideBuildPreview();
     }
   }
 
@@ -866,7 +1055,7 @@ export class GameScene extends Phaser.Scene {
   private updateHammerHighlight(): void {
     const ps = this.gameState.players[this.localPlayerId];
     const isHammer = ps.hotbar[ps.activeSlot]?.itemId === 'repair_hammer';
-    const menuOpen = this.craftingOpen || this.minerOpen || this.sawOpen || this.inventoryOpen || this.houseOpen;
+    const menuOpen = this.craftingOpen || this.minerOpen || this.sawOpen || this.anvilOpen || this.inventoryOpen || this.houseOpen;
 
     if (!isHammer || menuOpen) {
       if (this.hammerHoveredObj?.active) {
@@ -948,6 +1137,7 @@ export class GameScene extends Phaser.Scene {
     } else if (target instanceof Anvil) {
       const idx = this.anvils.indexOf(target);
       if (idx < 0) return;
+      if (this.activeAnvil === target) { this.anvilOpen = false; this.activeAnvil = null; }
       this.anvilGroup.remove(target, true, true);
       this.anvils.splice(idx, 1);
       this.spawnDrops(tx, ty, [{ itemId: 'anvil', quantity: 1 }]);
@@ -1006,31 +1196,11 @@ export class GameScene extends Phaser.Scene {
     this.craftingBench = new CraftingBench(this, wx, wy);
     this.buildingGroup.add(this.craftingBench, false);
     this.benchEIcon.setPosition(wx, wy).setVisible(false);
+    this.notifyBuildingPlaced('crafting-bench', wx, wy);
     this.sound.play('sfx-place-build', { volume: 0.7 });
     this.syncRegistry();
   }
 
-  private updateCraftingBenchPreview(): void {
-    const ps = this.gameState.players[this.localPlayerId];
-    const activeItem = ps.hotbar[ps.activeSlot];
-    const wantPreview = activeItem?.itemId === 'crafting_bench' && !this.craftingOpen && !this.minerOpen && !this.sawOpen && !this.inventoryOpen && !this.houseOpen;
-
-    if (wantPreview) {
-      const ptr = this.input.activePointer;
-      const wx = ptr.worldX, wy = ptr.worldY;
-      if (!this.craftingBenchPreview) {
-        this.craftingBenchPreview = this.add.image(wx, wy, 'building-crafting-bench')
-          .setDisplaySize(C.TILE_SIZE * 2, C.TILE_SIZE * 2)
-          .setAlpha(0.5)
-          .setDepth(C.DEPTH_PLAYER);
-      }
-      const valid = this.canPlaceBuilding(wx, wy);
-      this.craftingBenchPreview.setPosition(wx, wy).setTint(valid ? 0xffffff : 0xff5555);
-    } else if (this.craftingBenchPreview) {
-      this.craftingBenchPreview.destroy();
-      this.craftingBenchPreview = null;
-    }
-  }
 
   private canPlaceAcorn(wx: number, wy: number): boolean {
     if (Phaser.Math.Distance.Between(wx, wy, this.house.x, this.house.y) < 150) return false;
@@ -1048,37 +1218,30 @@ export class GameScene extends Phaser.Scene {
     const stump = new ResourceNode(this, wx, wy, 'tree');
     stump.enterBrokenState(60_000, false);
     this.resourceGroup.add(stump, false);
+    this.notifyBuildingPlaced('acorn-tree', wx, wy);
     this.sound.play('sfx-place-build', { volume: 0.7 });
     this.syncRegistry();
   }
 
-  private updateAcornPreview(): void {
-    const ps = this.gameState.players[this.localPlayerId];
-    const activeItem = ps.hotbar[ps.activeSlot];
-    const wantPreview = activeItem?.itemId === 'acorn' && !this.craftingOpen && !this.minerOpen && !this.sawOpen && !this.inventoryOpen && !this.houseOpen;
 
-    if (wantPreview) {
-      const ptr = this.input.activePointer;
-      const wx = ptr.worldX, wy = ptr.worldY;
-      if (!this.acornPreview) {
-        this.acornPreview = this.add.image(wx, wy, 'node-tree-stump')
-          .setDisplaySize(90, 120)
-          .setAlpha(0.5)
-          .setDepth(C.DEPTH_PLAYER);
-      }
-      const valid = this.canPlaceAcorn(wx, wy);
-      this.acornPreview.setPosition(wx, wy).setTint(valid ? 0xffffff : 0xff5555);
-    } else if (this.acornPreview) {
-      this.acornPreview.destroy();
-      this.acornPreview = null;
-    }
+  private placeBlueberrySeed(wx: number, wy: number): void {
+    if (!this.canPlaceBuilding(wx, wy)) return;
+    const ps = this.gameState.players[this.localPlayerId];
+    if (!removeItem(ps.hotbar, ps.inventory, 'blueberry_seed', 1)) return;
+    const bush = new ResourceNode(this, wx, wy, 'blueberry_bush');
+    bush.startEmpty();
+    this.resourceGroup.add(bush, false);
+    this.notifyBuildingPlaced('blueberry-bush', wx, wy);
+    this.sound.play('sfx-place-build', { volume: 0.7 });
+    this.syncRegistry();
   }
 
+
   private canPlaceBuilding(wx: number, wy: number): boolean {
-    const MIN = 20;
     for (const child of this.resourceGroup.getChildren()) {
       const node = child as ResourceNode;
-      if (Phaser.Math.Distance.Between(wx, wy, node.x, node.y) < MIN) return false;
+      const min = node.resourceType === 'blueberry_bush' ? 22 : 20;
+      if (Phaser.Math.Distance.Between(wx, wy, node.x, node.y) < min) return false;
     }
     for (const c of this.canons)   { if (Phaser.Math.Distance.Between(wx, wy, c.x, c.y) < 28) return false; }
     for (const t of this.turrets)  { if (Phaser.Math.Distance.Between(wx, wy, t.x, t.y) < 28) return false; }
@@ -1099,32 +1262,11 @@ export class GameScene extends Phaser.Scene {
     const canon = new Canon(this, wx, wy);
     this.canons.push(canon);
     this.canonGroup.add(canon, false);
+    this.notifyBuildingPlaced('canon', wx, wy);
     this.sound.play('sfx-place-build', { volume: 0.7 });
     this.syncRegistry();
   }
 
-  private updateCanonPreview(): void {
-    const ps = this.gameState.players[this.localPlayerId];
-    const activeItem = ps.hotbar[ps.activeSlot];
-    const wantPreview = activeItem?.itemId === 'canon' && !this.craftingOpen && !this.minerOpen && !this.sawOpen && !this.inventoryOpen && !this.houseOpen;
-
-    if (wantPreview) {
-      const ptr = this.input.activePointer;
-      const wx = ptr.worldX;
-      const wy = ptr.worldY;
-      if (!this.canonPreview) {
-        this.canonPreview = this.add.sprite(wx, wy, 'canon1-f2')
-          .setDisplaySize(36, 44)
-          .setAlpha(0.5)
-          .setDepth(C.DEPTH_PLAYER);
-      }
-      const valid = this.canPlaceCanon(wx, wy);
-      this.canonPreview.setPosition(wx, wy).setTint(valid ? 0xffffff : 0xff5555);
-    } else if (this.canonPreview) {
-      this.canonPreview.destroy();
-      this.canonPreview = null;
-    }
-  }
 
   private tickCanons(delta: number): void {
     const toRemove: Canon[] = [];
@@ -1161,7 +1303,10 @@ export class GameScene extends Phaser.Scene {
         sprite.destroy();
         this.activeCanonballs.splice(i, 1);
         this.spawnDamageNumber(enemy.x, enemy.y, damage);
-        if (enemy.takeDamage(damage)) {
+        if (this.multiplayer) {
+          audioManager.sfxEnemyHit();
+          this.sendAction({ kind: 'hit-enemy', enemyId: id, damage });
+        } else if (enemy.takeDamage(damage)) {
           this.killEnemy(id);
         } else {
           audioManager.sfxEnemyHit();
@@ -1181,31 +1326,11 @@ export class GameScene extends Phaser.Scene {
     const turret = new Turret(this, wx, wy);
     this.turrets.push(turret);
     this.turretGroup.add(turret, false);
+    this.notifyBuildingPlaced('turret', wx, wy);
     this.sound.play('sfx-place-build', { volume: 0.7 });
     this.syncRegistry();
   }
 
-  private updateTurretPreview(): void {
-    const ps = this.gameState.players[this.localPlayerId];
-    const activeItem = ps.hotbar[ps.activeSlot];
-    const wantPreview = activeItem?.itemId === 'turret' && !this.craftingOpen && !this.minerOpen && !this.sawOpen && !this.inventoryOpen && !this.houseOpen;
-
-    if (wantPreview) {
-      const ptr = this.input.activePointer;
-      const wx = ptr.worldX, wy = ptr.worldY;
-      if (!this.turretPreview) {
-        this.turretPreview = this.add.image(wx, wy, 'turret')
-          .setDisplaySize(40, 50)
-          .setAlpha(0.5)
-          .setDepth(C.DEPTH_PLAYER);
-      }
-      const valid = this.canPlaceBuilding(wx, wy);
-      this.turretPreview.setPosition(wx, wy).setTint(valid ? 0xffffff : 0xff5555);
-    } else if (this.turretPreview) {
-      this.turretPreview.destroy();
-      this.turretPreview = null;
-    }
-  }
 
   private tickTurrets(delta: number): void {
     const toRemove: Turret[] = [];
@@ -1243,7 +1368,10 @@ export class GameScene extends Phaser.Scene {
         sprite.destroy();
         this.activeTurretArrows.splice(i, 1);
         this.spawnDamageNumber(enemy.x, enemy.y, damage);
-        if (enemy.takeDamage(damage)) {
+        if (this.multiplayer) {
+          audioManager.sfxEnemyHit();
+          this.sendAction({ kind: 'hit-enemy', enemyId: id, damage });
+        } else if (enemy.takeDamage(damage)) {
           this.killEnemy(id);
         } else {
           audioManager.sfxEnemyHit();
@@ -1319,6 +1447,16 @@ export class GameScene extends Phaser.Scene {
     for (const saw of this.saws) {
       const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, saw.x, saw.y);
       if (dist < bestDist) { bestDist = dist; best = saw; }
+    }
+    return best;
+  }
+
+  private findNearbyAnvil(): Anvil | null {
+    let best: Anvil | null = null;
+    let bestDist: number = C.INTERACT_RANGE;
+    for (const anvil of this.anvils) {
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, anvil.x, anvil.y);
+      if (dist < bestDist) { bestDist = dist; best = anvil; }
     }
     return best;
   }
@@ -1415,17 +1553,20 @@ export class GameScene extends Phaser.Scene {
 
     const angle = Math.random() * Math.PI * 2;
     const r = 14 + Math.random() * 8;
-    const dx = Math.cos(angle) * r;
-    const dy = Math.sin(angle) * r;
+    const dropX = this.player.x + Math.cos(angle) * r;
+    const dropY = this.player.y + Math.sin(angle) * r;
     const id = crypto.randomUUID();
-    this.gameState.droppedItems[id] = {
-      itemId: slot.itemId, quantity: qty,
-      position: { x: this.player.x + dx, y: this.player.y + dy },
-    };
-    this.droppedItemMap.set(id, new DroppedItem(
-      this, this.player.x + dx, this.player.y + dy, slot.itemId, qty,
-    ));
+
+    this.gameState.droppedItems[id] = { itemId: slot.itemId, quantity: qty, position: { x: dropX, y: dropY } };
+    const item = new DroppedItem(this, dropX, dropY, slot.itemId, qty);
+    this.droppedItemMap.set(id, item);
     this.dropImmune.add(id);
+
+    if (this.multiplayer) {
+      this.serverDropMap.set(id, item); // track so pickup sends pickup-drop
+      this.sendAction({ kind: 'sync-drops', drops: [{ id, itemId: slot.itemId, quantity: qty, x: dropX, y: dropY }] });
+    }
+
     this.syncRegistry();
   }
 
@@ -1442,7 +1583,10 @@ export class GameScene extends Phaser.Scene {
         sprite.destroy();
         this.activeArrows.splice(i, 1);
         this.spawnDamageNumber(enemy.x, enemy.y, damage);
-        if (enemy.takeDamage(damage)) {
+        if (this.multiplayer) {
+          audioManager.sfxEnemyHit();
+          this.sendAction({ kind: 'hit-enemy', enemyId: id, damage });
+        } else if (enemy.takeDamage(damage)) {
           this.killEnemy(id);
         } else {
           audioManager.sfxEnemyHit();
@@ -1502,6 +1646,7 @@ export class GameScene extends Phaser.Scene {
     // Sword: directional swing — only when no resource is in range
     if (isSword && !nearResource) {
       this.player.playAttackAnim('player-knife-interact');
+      if (this.multiplayer) this.sendAction({ kind: 'melee' }, 'player-knife-interact');
       audioManager.sfxMeleeAttack();
       const damage = (itemDef!.damage ?? 1) + (ps.skillStrength >= 2 ? 5 : 0);
       const ptr = this.input.activePointer;
@@ -1515,7 +1660,10 @@ export class GameScene extends Phaser.Scene {
         if (enemy.isDead) continue;
         if (Phaser.Math.Distance.Between(fxX, fxY, enemy.x, enemy.y) > hitRadius) continue;
         this.spawnDamageNumber(enemy.x, enemy.y, damage);
-        if (enemy.takeDamage(damage)) {
+        if (this.multiplayer) {
+          audioManager.sfxEnemyHit();
+          this.sendAction({ kind: 'hit-enemy', enemyId: id, damage });
+        } else if (enemy.takeDamage(damage)) {
           this.killEnemy(id);
         } else {
           audioManager.sfxEnemyHit();
@@ -1527,14 +1675,48 @@ export class GameScene extends Phaser.Scene {
 
     // Resource harvesting (any weapon or fist)
     if (nearResource) {
+      if (nearestNode!.resourceType === 'gold_node') {
+        const hasPickaxe = ps.hotbar[ps.activeSlot]?.itemId === 'stone_pickaxe';
+        if (!hasPickaxe) return;
+      }
       const isRock = nearestNode!.resourceType === 'rock'
         || nearestNode!.resourceType === 'iron_ore_node'
-        || nearestNode!.resourceType === 'copper_ore_node';
-      this.player.playAttackAnim(isRock ? 'player-pickaxe-interact' : 'player-axe-interact');
+        || nearestNode!.resourceType === 'copper_ore_node'
+        || nearestNode!.resourceType === 'gold_node';
+      const hitAnimKey = isRock ? 'player-pickaxe-interact' : 'player-axe-interact';
+      this.player.playAttackAnim(hitAnimKey);
       this.sound.play('sfx-hit-resource', { volume: 0.7 });
+      const wasBroken = nearestNode!.isBroken;
       const result = nearestNode!.hit();
-      if (result.destroyed) this.destroyNode(nearestNode!, result.drops);
-      else if (result.drops.length > 0) this.spawnDrops(nearestNode!.x, nearestNode!.y, result.drops);
+      if (result.destroyed) {
+        const nodeId = nearestNode!.name;
+        if (this.multiplayer) {
+          this.destroyNode(nearestNode!, []); // drops come from server snapshot
+          if (nodeId) {
+            if (result.drops.length > 0) {
+              const serverDrops = this.toServerDrops(nearestNode!.x, nearestNode!.y, result.drops);
+              this.sendAction({ kind: 'sync-drops', drops: serverDrops }, hitAnimKey);
+            }
+            this.sendAction({ kind: 'node-event', nodeId, event: 'depleted' });
+          }
+        } else {
+          this.destroyNode(nearestNode!, result.drops);
+        }
+      } else {
+        if (this.multiplayer) {
+          if (result.drops.length > 0) {
+            const serverDrops = this.toServerDrops(nearestNode!.x, nearestNode!.y, result.drops);
+            this.sendAction({ kind: 'sync-drops', drops: serverDrops }, hitAnimKey);
+          }
+          if (!wasBroken && nearestNode!.isBroken) {
+            this.sendAction({ kind: 'node-event', nodeId: nearestNode!.name, event: 'broken' });
+          } else if (result.drops.length === 0) {
+            this.sendAction({ kind: 'melee' }, hitAnimKey);
+          }
+        } else {
+          if (result.drops.length > 0) this.spawnDrops(nearestNode!.x, nearestNode!.y, result.drops);
+        }
+      }
       return;
     }
 
@@ -1548,11 +1730,15 @@ export class GameScene extends Phaser.Scene {
     if (nearestEnemyId) {
       audioManager.sfxMeleeAttack();
       this.player.playAttackAnim('player-knife-interact');
+      if (this.multiplayer) this.sendAction({ kind: 'melee' }, 'player-knife-interact');
       this.playSwordSwing();
       const damage = (itemDef?.damage ?? 1) + (ps.skillStrength >= 2 ? 5 : 0);
       const enemy = this.activeEnemies.get(nearestEnemyId)!;
       this.spawnDamageNumber(enemy.x, enemy.y, damage);
-      if (enemy.takeDamage(damage)) {
+      if (this.multiplayer) {
+        audioManager.sfxEnemyHit();
+        this.sendAction({ kind: 'hit-enemy', enemyId: nearestEnemyId, damage });
+      } else if (enemy.takeDamage(damage)) {
         this.killEnemy(nearestEnemyId);
       } else {
         audioManager.sfxEnemyHit();
@@ -1563,18 +1749,19 @@ export class GameScene extends Phaser.Scene {
 
   /** Removes a node from the world, replaces its tile with dirt, spawns drops, schedules respawn. */
   private destroyNode(node: ResourceNode, drops: { itemId: string; quantity: number }[]): void {
+    if (node.name) this.resourceNodeMap.delete(node.name);
     const wx = node.x;
     const wy = node.y;
     const type = node.resourceType;
 
     // Broken tree stump hit by player — just remove, no tile change or respawn
-    if (type === 'tree' && node.isBroken) {
+    if ((type === 'tree' || type === 'forest_tree' || type === 'flora_tree') && node.isBroken) {
       this.resourceGroup.remove(node, true, true);
       if (drops.length > 0) this.spawnDrops(wx, wy, drops);
       return;
     }
 
-    if (type === 'bush' || type === 'blueberry_bush') {
+    if (type === 'bush' || type === 'forest_bush' || type === 'blueberry_bush') {
       this.resourceGroup.remove(node, true, true);
       if (drops.length > 0) this.spawnDrops(wx, wy, drops);
       this.time.delayedCall(30_000, () => {
@@ -1732,6 +1919,54 @@ export class GameScene extends Phaser.Scene {
     this.gameState.enemies[id] = { id, type: enemyId, position: { x, y }, hp: def.hp, maxHp: def.hp };
   }
 
+  /** Seed the initial natural-enemy population across the map (called once at world creation). */
+  private spawnNaturalEnemies(): void {
+    for (const def of Object.values(ENEMIES)) {
+      if (!def.isNatural) continue;
+      for (let i = 0; i < (def.maxAlive ?? 0); i++) this.spawnNaturalEnemy(def.id);
+    }
+  }
+
+  /** Spawn one natural enemy of the given type, if it's still under its world population cap. */
+  private spawnNaturalEnemy(enemyId: string): void {
+    const def = ENEMIES[enemyId];
+    if (!def || !def.isNatural) return;
+    if (this.countAliveNatural(enemyId) >= (def.maxAlive ?? 0)) return;
+
+    const pos = this.pickNaturalSpawnPoint(def);
+    if (!pos) return;
+
+    const id = crypto.randomUUID();
+    const enemy = new BaseEnemy(this, pos.x, pos.y, def);
+    this.activeEnemies.set(id, enemy);
+    this.enemyGroup.add(enemy);
+    this.gameState.enemies[id] = { id, type: enemyId, position: pos, hp: def.hp, maxHp: def.hp };
+  }
+
+  private countAliveNatural(enemyId: string): number {
+    let count = 0;
+    for (const enemy of this.activeEnemies.values()) if (enemy.enemyId === enemyId) count++;
+    return count;
+  }
+
+  /** Pick a random point inside this enemy's biome, away from the player's starting base. */
+  private pickNaturalSpawnPoint(def: EnemyDefinition): { x: number; y: number } | null {
+    const mapSize = C.MAP_WIDTH_TILES * C.TILE_SIZE;
+    const CLEAR_SQ = 300 * 300;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const x = this.rng() * mapSize;
+      const y = def.biome === 'forest'
+        ? this.rng() * C.FOREST_BIOME_ROWS * C.TILE_SIZE
+        : def.biome === 'flora'
+          ? mapSize - this.rng() * C.FLORA_BIOME_ROWS * C.TILE_SIZE
+          : this.rng() * mapSize;
+      const dx = x - C.PLAYER_SPAWN.x, dy = y - C.PLAYER_SPAWN.y;
+      if (dx * dx + dy * dy < CLEAR_SQ) continue;
+      return { x, y };
+    }
+    return null;
+  }
+
   /** Remove a dead enemy, spawn its drops, update wave counter. */
   private killEnemy(id: string): void {
     const enemy = this.activeEnemies.get(id);
@@ -1746,6 +1981,273 @@ export class GameScene extends Phaser.Scene {
     this.waveKilled += 1;
     this.gameState.enemiesRemainingThisWave = Math.max(0, this.waveTotal - this.waveKilled);
     if (this.gameState.enemiesRemainingThisWave === 0) this.gameState.waveActive = false;
+  }
+
+  /** Convert a local drop list into server-format snapshots with UUIDs and scatter positions. */
+  private toServerDrops(x: number, y: number, drops: { itemId: string; quantity: number }[]): DroppedItemSnapshot[] {
+    const result: DroppedItemSnapshot[] = [];
+    for (const drop of drops) {
+      for (let q = 0; q < drop.quantity; q++) {
+        const angle = Math.random() * Math.PI * 2;
+        const r = 8 + Math.random() * 20;
+        result.push({ id: crypto.randomUUID(), itemId: drop.itemId, quantity: 1,
+          x: x + Math.cos(angle) * r, y: y + Math.sin(angle) * r });
+      }
+    }
+    return result;
+  }
+
+  private sendAction(action: import('../../shared/packets').ActionEvent, attackAnim: string | null = null): void {
+    const ps = this.gameState.players[this.localPlayerId];
+    if (!ps) return;
+    net.send({
+      type: 'input',
+      keys: { up: this.keys.up.isDown, down: this.keys.down.isDown, left: this.keys.left.isDown, right: this.keys.right.isDown },
+      pointerWorld: { x: this.input.activePointer.worldX, y: this.input.activePointer.worldY },
+      facing: ps.facing,
+      action,
+      position: { x: this.player.x, y: this.player.y },
+      attackAnim,
+    });
+  }
+
+  /** Send a building-placement event and mark it so the echo is ignored. */
+  private notifyBuildingPlaced(kind: import('../../shared/packets').BuildingKind, x: number, y: number, nodeId?: string): void {
+    if (!this.multiplayer) return;
+    const buildingId = crypto.randomUUID();
+    this.placedBuildingIds.add(buildingId);
+    this.sendAction({ kind: 'place-building', buildingId, buildingKind: kind, x, y, nodeId });
+  }
+
+  /** Spawn a building received from the server snapshot on this client (no item cost). */
+  private spawnBuildingFromNetwork(snap: import('../../shared/packets').BuildingSnapshot): void {
+    this.placedBuildingIds.add(snap.id);
+
+    switch (snap.kind) {
+      case 'canon': {
+        const c = new Canon(this, snap.x, snap.y);
+        this.canons.push(c);
+        this.canonGroup.add(c, false);
+        break;
+      }
+      case 'turret': {
+        const t = new Turret(this, snap.x, snap.y);
+        this.turrets.push(t);
+        this.turretGroup.add(t, false);
+        break;
+      }
+      case 'anvil': {
+        const a = new Anvil(this, snap.x, snap.y);
+        this.anvils.push(a);
+        this.anvilGroup.add(a, false);
+        break;
+      }
+      case 'crafting-bench': {
+        if (!this.craftingBench) {
+          this.craftingBench = new CraftingBench(this, snap.x, snap.y);
+          this.buildingGroup.add(this.craftingBench, false);
+          this.benchEIcon.setPosition(snap.x, snap.y).setVisible(false);
+        }
+        break;
+      }
+      case 'auto-miner': {
+        const node = snap.nodeId ? this.resourceNodeMap.get(snap.nodeId) : null;
+        if (node) {
+          this.resourceGroup.remove(node, false, false);
+          const miner = new AutoMiner(this, node);
+          this.buildingGroup.add(miner, false);
+          this.miners.push(miner);
+        }
+        break;
+      }
+      case 'auto-saw': {
+        const node = snap.nodeId ? this.resourceNodeMap.get(snap.nodeId) : null;
+        if (node) {
+          this.resourceGroup.remove(node, false, false);
+          const saw = new AutoSaw(this, node);
+          this.buildingGroup.add(saw, false);
+          this.saws.push(saw);
+        }
+        break;
+      }
+      case 'acorn-tree': {
+        const stump = new ResourceNode(this, snap.x, snap.y, 'tree');
+        stump.enterBrokenState(60_000, false);
+        this.resourceGroup.add(stump, false);
+        break;
+      }
+      case 'blueberry-bush': {
+        const bush = new ResourceNode(this, snap.x, snap.y, 'blueberry_bush');
+        bush.startEmpty();
+        this.resourceGroup.add(bush, false);
+        break;
+      }
+    }
+  }
+
+  // ── Multiplayer snapshot application ─────────────────────────────────────
+
+  private applySnapshot(snapshot: GameSnapshot): void {
+    const ps = this.gameState.players[this.localPlayerId];
+    if (!ps) return; // player state not yet initialised
+
+    // Phase timer & state
+    this.gameState.phase      = snapshot.phase;
+    this.gameState.phaseTimer = snapshot.phaseTimerSec;
+    this.gameState.nightNumber = snapshot.nightNumber;
+    this.gameState.dayNumber   = snapshot.dayNumber;
+    this.gameState.waveActive  = snapshot.waveActive;
+
+    // House HP
+    if (snapshot.houseHp !== this.houseHp) {
+      const prevHp = this.houseHp;
+      this.houseHp = snapshot.houseHp;
+      if (snapshot.houseHp < prevHp) {
+        const distToHouse = Phaser.Math.Distance.Between(
+          ps.position.x, ps.position.y, this.house.x, this.house.y,
+        );
+        if (distToHouse <= C.HOUSE_AUDIO_RANGE) audioManager.sfxHouseHit();
+        if (this.houseHp <= 0) {
+          this.gameOver = true;
+          this.player.setVelocity(0, 0);
+          audioManager.sfxGameOver();
+          this.scene.stop('ui');
+          this.scene.start('game-over', {
+            nightsSurvived: snapshot.nightNumber,
+            dayReached:     snapshot.dayNumber,
+          });
+          return;
+        }
+      }
+    }
+
+    // Trigger night-start sfx on phase change
+    if (snapshot.phase === 'night' && this.gameState.phase === 'day') {
+      audioManager.sfxNightStart();
+    }
+
+    // Enemies: sync server list to local Phaser sprites
+    const serverIds = new Set(snapshot.enemies.map(e => e.id));
+
+    // Remove enemies no longer on server
+    for (const [id, enemy] of this.activeEnemies) {
+      if (!serverIds.has(id)) {
+        audioManager.sfxEnemyDeath();
+        this.createDeathParticles(enemy.x, enemy.y);
+        // Drops come from snapshot.drops — don't spawn locally
+        this.enemyGroup.remove(enemy);
+        enemy.destroy();
+        this.activeEnemies.delete(id);
+        delete this.gameState.enemies[id];
+      }
+    }
+
+    // Create or update enemies from server
+    for (const snap of snapshot.enemies) {
+      const existing = this.activeEnemies.get(snap.id);
+      if (existing) {
+        existing.applyServerUpdate(snap.x, snap.y, snap.hp);
+      } else {
+        const def = ENEMIES[snap.defId];
+        if (!def) continue;
+        const enemy = new BaseEnemy(this, snap.x, snap.y, def);
+        this.activeEnemies.set(snap.id, enemy);
+        this.enemyGroup.add(enemy);
+        this.gameState.enemies[snap.id] = {
+          id: snap.id, type: snap.defId,
+          position: { x: snap.x, y: snap.y },
+          hp: snap.hp, maxHp: snap.maxHp,
+        };
+      }
+    }
+
+    // Remote players
+    const myId = this.localPlayerId;
+    const seenIds = new Set<string>();
+
+    for (const pSnap of snapshot.players) {
+      if (pSnap.id === myId) {
+        // Apply authoritative HP for enemy damage (server is the damage source)
+        if (pSnap.hp < ps.hp) {
+          ps.hp = pSnap.hp;
+          audioManager.sfxPlayerHit();
+          this.cameras.main.shake(60, 0.002);
+          if (ps.hp <= 0) {
+            this.gameOver = true;
+            this.player.setVelocity(0, 0);
+            audioManager.sfxGameOver();
+            this.scene.stop('ui');
+            this.scene.start('game-over', {
+              nightsSurvived: snapshot.nightNumber,
+              dayReached:     snapshot.dayNumber,
+            });
+            return;
+          }
+        }
+        continue;
+      }
+      seenIds.add(pSnap.id);
+      const rp = this.remotePlayerMap.get(pSnap.id);
+      if (rp) {
+        rp.applyServerUpdate(pSnap.x, pSnap.y, pSnap.attackAnim);
+      } else {
+        const newRp = new RemotePlayer(this, pSnap.x, pSnap.y, pSnap.name);
+        this.remotePlayerMap.set(pSnap.id, newRp);
+      }
+    }
+
+    // Remove players no longer in snapshot
+    for (const [id, rp] of this.remotePlayerMap) {
+      if (!seenIds.has(id)) { rp.destroy(); this.remotePlayerMap.delete(id); }
+    }
+
+    // Building sync — spawn buildings placed by other players
+    for (const bsnap of snapshot.buildings) {
+      if (!this.placedBuildingIds.has(bsnap.id)) {
+        this.spawnBuildingFromNetwork(bsnap);
+      }
+    }
+
+    // Resource node sync
+    for (const nodeId of snapshot.brokenNodeIds) {
+      const node = this.resourceNodeMap.get(nodeId);
+      if (node && !node.isBroken && (node.resourceType === 'tree' || node.resourceType === 'forest_tree' || node.resourceType === 'flora_tree')) {
+        node.enterBrokenState();
+      }
+    }
+    for (const nodeId of snapshot.depletedNodeIds) {
+      const node = this.resourceNodeMap.get(nodeId);
+      if (node) {
+        this.resourceGroup.remove(node, true, true);
+        this.resourceNodeMap.delete(nodeId);
+      }
+    }
+
+    // Drops: reconcile server list with local sprites
+    const serverDropIds = new Set(snapshot.drops.map(d => d.id));
+
+    // Remove drops no longer on server (picked up by someone or server cleared)
+    for (const [id, item] of this.serverDropMap) {
+      if (!serverDropIds.has(id)) {
+        item.destroy();
+        this.serverDropMap.delete(id);
+        this.droppedItemMap.delete(id);
+        delete this.gameState.droppedItems[id];
+        this.locallyPickedDropIds.delete(id); // confirm pickup received
+      }
+    }
+
+    // Add new drops from server
+    for (const drop of snapshot.drops) {
+      if (this.serverDropMap.has(drop.id)) continue;        // already exists
+      if (this.locallyPickedDropIds.has(drop.id)) continue; // we picked it up, awaiting server ack
+      const item = new DroppedItem(this, drop.x, drop.y, drop.itemId, drop.quantity);
+      this.serverDropMap.set(drop.id, item);
+      this.droppedItemMap.set(drop.id, item);
+      this.gameState.droppedItems[drop.id] = { itemId: drop.itemId, quantity: drop.quantity, position: { x: drop.x, y: drop.y } };
+    }
+
+    this.syncRegistry();
   }
 
   /** Burst of orange-red particles at the enemy's last position. */
@@ -1767,10 +2269,12 @@ export class GameScene extends Phaser.Scene {
   /** Writes current GameState values into the shared registry for UIScene to read. */
   private syncRegistry(): void {
     const player = this.gameState.players[this.localPlayerId];
+    if (!player) return;
     this.game.registry.set(R.PLAYER_HP,         player.hp);
     this.game.registry.set(R.PLAYER_MAX_HP,      player.maxHp);
     this.game.registry.set(R.INVENTORY,          player.inventory);
     this.game.registry.set(R.HOTBAR,             player.hotbar);
+    this.game.registry.set(R.EQUIPMENT,          player.equipment);
     this.game.registry.set(R.ACTIVE_SLOT,        player.activeSlot);
     this.game.registry.set(R.DAY_NUMBER,         this.gameState.dayNumber);
     this.game.registry.set(R.PHASE,              this.gameState.phase);
@@ -1790,6 +2294,7 @@ export class GameScene extends Phaser.Scene {
     this.game.registry.set(R.MINER_POWER,        this.activeMiner?.power ?? 0);
     this.game.registry.set(R.MINER_HAS_PICKAXE,  this.activeMiner?.hasPickaxe ?? false);
     this.game.registry.set(R.SAW_OPEN,           this.sawOpen);
+    this.game.registry.set(R.ANVIL_OPEN,         this.anvilOpen);
     this.game.registry.set(R.SAW_POWER,          this.activeSaw?.power ?? 0);
     this.game.registry.set(R.SAW_HAS_AXE,        this.activeSaw?.hasAxe ?? false);
     this.game.registry.set(R.MINER_OUTPUT,       this.activeMiner?.getOutput() ?? null);

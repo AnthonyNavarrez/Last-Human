@@ -17,6 +17,7 @@ export const WAVES: WaveDefinition[] = [
       { enemyId: 'skeleton',  count: 4, spawnIntervalMs: 2200, spawnDelayMs: 0 },
       { enemyId: 'mercenary', count: 2, spawnIntervalMs: 3000, spawnDelayMs: 5000 },
       { enemyId: 'spider',    count: 2, spawnIntervalMs: 3500, spawnDelayMs: 6000 },
+      { enemyId: 'gnome',     count: 2, spawnIntervalMs: 3000, spawnDelayMs: 8000 },
     ],
   },
   {
@@ -26,6 +27,7 @@ export const WAVES: WaveDefinition[] = [
       { enemyId: 'mercenary', count: 4, spawnIntervalMs: 2500, spawnDelayMs: 3000 },
       { enemyId: 'orc',       count: 2, spawnIntervalMs: 5000, spawnDelayMs: 8000 },
       { enemyId: 'spider',    count: 3, spawnIntervalMs: 2800, spawnDelayMs: 4000 },
+      { enemyId: 'gnome',     count: 3, spawnIntervalMs: 2500, spawnDelayMs: 5000 },
     ],
   },
   {
@@ -35,6 +37,7 @@ export const WAVES: WaveDefinition[] = [
       { enemyId: 'orc',        count: 3, spawnIntervalMs: 4000, spawnDelayMs: 5000 },
       { enemyId: 'yellow_bat', count: 2, spawnIntervalMs: 6000, spawnDelayMs: 20000 },
       { enemyId: 'spider',     count: 4, spawnIntervalMs: 2500, spawnDelayMs: 3000 },
+      { enemyId: 'gnome',      count: 4, spawnIntervalMs: 2200, spawnDelayMs: 4000 },
     ],
   },
 ];

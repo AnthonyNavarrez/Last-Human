@@ -9,6 +9,8 @@ export const C = {
   MAP_HEIGHT_TILES:  200,
   PLAYER_SPAWN:      { x: 1600, y: 1600 },
   CAMERA_ZOOM:       3,
+  FOREST_BIOME_ROWS: 40, // top N tile rows are the forest biome
+  FLORA_BIOME_ROWS:  40, // bottom N tile rows are the flora biome
 
   // Phase
   DAY_DURATION_SEC:  180,

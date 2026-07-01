@@ -6,12 +6,19 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "extract-sprites": "node scripts/extract-sprites.mjs"
+    "extract-sprites": "node scripts/extract-sprites.mjs",
+    "server:dev": "tsx watch server/index.ts",
+    "server:start": "tsx server/index.ts",
+    "server:check": "tsc -p tsconfig.server.json --noEmit",
+    "build:client": "tsc && vite build"
   },
   "dependencies": {
-    "phaser": "^3.80.0"
+    "phaser": "^3.80.0",
+    "tsx": "^4.22.4",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
+    "@types/ws": "^8.18.1",
     "sharp": "^0.35.2",
     "typescript": "^5.4.0",
     "vite": "^5.0.0"
