@@ -35,7 +35,7 @@ const WEAPON_ANIMS: Record<string, { idle: string; run: string; interact: string
 };
 
 export class Player extends Phaser.Physics.Arcade.Sprite {
-  public speed = C.PLAYER_SPEED;
+  public speed: number = C.PLAYER_SPEED;
   private facing: 'up' | 'down' | 'left' | 'right' = 'down';
   private equippedItemId: string | null = null;
   private isAttacking = false;

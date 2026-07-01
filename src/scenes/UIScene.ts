@@ -243,7 +243,7 @@ export class UIScene extends Phaser.Scene {
     }
 
     if (this.tooltip.visible) {
-      this.tooltip.moveTo(this.input.activePointer.x, this.input.activePointer.y);
+      this.tooltip.moveToScreenPos(this.input.activePointer.x, this.input.activePointer.y);
     }
   }
 

@@ -97,7 +97,7 @@ export class Tooltip extends Phaser.GameObjects.Container {
     this.setVisible(false);
   }
 
-  moveTo(screenX: number, screenY: number): void {
+  moveToScreenPos(screenX: number, screenY: number): void {
     const { width } = this.scene.scale;
     const tw = this.bg.width;
     const th = this.bg.height;

@@ -192,7 +192,7 @@ export class HouseMenu extends Phaser.GameObjects.Container {
     closeBg.on('pointerout',  () => closeBg.setFillStyle(0x2a2a45));
 
     // Initially hide skill items
-    for (const obj of this.skillItems) (obj as { setVisible(v: boolean): void }).setVisible(false);
+    for (const obj of this.skillItems) (obj as Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible).setVisible(false);
 
     scene.add.existing(this);
     this.setDepth(200);
@@ -207,8 +207,8 @@ export class HouseMenu extends Phaser.GameObjects.Container {
     this.activeTab = tab;
     const isHouse = tab === 'house';
 
-    for (const obj of this.houseItems)  (obj as { setVisible(v: boolean): void }).setVisible(isHouse);
-    for (const obj of this.skillItems)  (obj as { setVisible(v: boolean): void }).setVisible(!isHouse);
+    for (const obj of this.houseItems)  (obj as Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible).setVisible(isHouse);
+    for (const obj of this.skillItems)  (obj as Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible).setVisible(!isHouse);
 
     // Override house-tab upgrade / max text based on current level
     if (isHouse) {
